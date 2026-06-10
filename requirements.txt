@@ -3,7 +3,8 @@ qasync
 opencv-python
 aiortc
 pyvirtualcam
-decart-python
+decart
 keyring
 av
+tenacity
 python-dotenv

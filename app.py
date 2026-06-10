@@ -96,7 +96,15 @@ class DecartApp(QMainWindow):
         # Central: Video Canvas
         self.video_canvas = QLabel("Connect to start")
         self.video_canvas.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.video_canvas.setStyleSheet("background-color: black; border-radius: 8px;")
+        self.video_canvas.setStyleSheet("""
+            QLabel {
+                background-color: black; 
+                border-radius: 8px; 
+                color: #555; 
+                font-size: 18px;
+                border: 2px solid #222;
+            }
+        """)
         self.video_canvas.setMinimumHeight(500)
         main_layout.addWidget(self.video_canvas, stretch=1)
 
