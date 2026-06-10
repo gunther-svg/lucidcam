@@ -7,8 +7,8 @@ from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
     QLineEdit, QPushButton, QLabel, QScrollArea, QFrame, QMessageBox
 )
-from PyQt6.QtCore import Qt, pyqtSlot
-from PyQt6.QtGui import QImage, QPixmap, QColor, QPalette
+from PyQt6.QtCore import Qt, pyqtSlot, QSettings
+from PyQt6.QtGui import QImage, QPixmap, QColor, QPalette, QIcon
 from qasync import QEventLoop, asyncSlot
 
 from decart import DecartClient, models
@@ -16,6 +16,11 @@ from decart.realtime import RealtimeClient, RealtimeConnectOptions
 from decart.types import ModelState, Prompt
 
 from video_pipeline import CameraThread, LocalVideoStreamTrack, FrameEmitter
+import aiohttp
+
+VERSION = "1.0.0"
+# Placeholder URL for version checking
+UPDATE_URL = "https://raw.githubusercontent.com/YOUR_USERNAME/LucidCam/main/version.txt"
 
 # --- Styling ---
 DARK_THEME = """
@@ -67,6 +72,9 @@ class DecartApp(QMainWindow):
         self.setMinimumSize(1000, 800)
         self.setStyleSheet(DARK_THEME)
 
+        # Native settings persistence
+        self.settings = QSettings("LucidCam", "AI_Restyler")
+
         # State
         self.realtime_client = None
         self.camera_thread = None
@@ -74,7 +82,12 @@ class DecartApp(QMainWindow):
         self.frame_emitter = FrameEmitter()
         self.frame_emitter.frame_received.connect(self.update_video_canvas)
 
+        self.latest_transformed_frame = None
+        self.output_task = None
+        self.target_fps = 24
+
         self.init_ui()
+        self.load_settings()
         self.load_api_key()
 
     def init_ui(self):
@@ -142,16 +155,60 @@ class DecartApp(QMainWindow):
 
         # Bottom Bar: Status and Connect
         bottom_bar = QHBoxLayout()
-        self.status_label = QLabel("Status: Disconnected")
+        self.status_label = QLabel(f"LucidCam v{VERSION} | Status: Disconnected")
         self.status_label.setObjectName("statusLabel")
+        
+        update_btn = QPushButton("Check for Updates")
+        update_btn.setFixedWidth(150)
+        update_btn.clicked.connect(self.check_for_updates_task)
+        
         self.connect_btn = QPushButton("Connect")
         self.connect_btn.clicked.connect(self.toggle_connection)
+        
         bottom_bar.addWidget(self.status_label)
         bottom_bar.addStretch()
+        bottom_bar.addWidget(update_btn)
         bottom_bar.addWidget(self.connect_btn)
         control_panel.addLayout(bottom_bar)
 
         main_layout.addLayout(control_panel)
+
+    # --- Persistence Logic ---
+    def load_settings(self):
+        # Restore last prompt
+        last_prompt = self.settings.value("last_prompt", "A cinematic portrait")
+        self.prompt_input.setText(last_prompt)
+        
+        # Restore window geometry (size/position)
+        geometry = self.settings.value("geometry")
+        if geometry:
+            self.restoreGeometry(geometry)
+
+    def closeEvent(self, event):
+        # Save settings on exit
+        self.settings.setValue("last_prompt", self.prompt_input.text())
+        self.settings.setValue("geometry", self.saveGeometry())
+        super().closeEvent(event)
+
+    # --- Update Logic ---
+    @asyncSlot()
+    async def check_for_updates_task(self):
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(UPDATE_URL) as response:
+                    if response.status == 200:
+                        latest_version = (await response.text()).strip()
+                        if latest_version > VERSION:
+                            QMessageBox.information(self, "Update Available", 
+                                f"A new version of LucidCam (v{latest_version}) is available!\n\nPlease visit the GitHub repo to download.")
+                        else:
+                            QMessageBox.information(self, "Up to Date", "You are running the latest version of LucidCam.")
+                    else:
+                        raise Exception(f"Server returned status {response.status}")
+        except Exception as e:
+            # We fail silently or with a quiet warning as this isn't critical for core app use
+            print(f"Update check failed: {e}")
+            QMessageBox.warning(self, "Update Check Failed", "Could not check for updates. Check your internet connection.")
 
     # --- API Key Management ---
     def load_api_key(self):
@@ -183,10 +240,18 @@ class DecartApp(QMainWindow):
         self.connect_btn.setEnabled(False)
 
         try:
+            # 3. Setup Decart SDK
+            model = models.realtime("lucy-2.1")
+            client = DecartClient(api_key=api_key)
+            
+            target_width = getattr(model, "width", 1280)
+            target_height = getattr(model, "height", 720)
+            self.target_fps = getattr(model, "fps", 24)
+
             # 1. Initialize Virtual Camera
             try:
-                self.vcam = pyvirtualcam.Camera(width=1280, height=720, fps=24)
-                print(f"Virtual camera started: {self.vcam.device}")
+                self.vcam = pyvirtualcam.Camera(width=target_width, height=target_height, fps=self.target_fps)
+                print(f"Virtual camera started: {self.vcam.device} ({target_width}x{target_height} @ {self.target_fps}fps)")
             except Exception as e:
                 QMessageBox.critical(self, "Driver Missing", 
                     f"Could not start virtual camera. Please ensure OBS Virtual Camera or v4l2loopback is installed.\nError: {e}")
@@ -194,7 +259,7 @@ class DecartApp(QMainWindow):
                 return
 
             # 2. Start Camera Thread
-            self.camera_thread = CameraThread(target_width=1280, target_height=720)
+            self.camera_thread = CameraThread(target_width=target_width, target_height=target_height)
             self.camera_thread.start()
             
             # Wait a bit for the camera to warm up
@@ -202,10 +267,6 @@ class DecartApp(QMainWindow):
             if not self.camera_thread.running:
                 raise Exception("Could not open local camera. It might be in use by another app.")
 
-            # 3. Setup Decart SDK
-            model = models.realtime("lucy-2.1")
-            client = DecartClient(api_key=api_key)
-            
             local_track = LocalVideoStreamTrack(self.camera_thread)
 
             self.realtime_client = await RealtimeClient.connect(
@@ -231,6 +292,11 @@ class DecartApp(QMainWindow):
 
     async def disconnect(self):
         self.status_label.setText("Status: Disconnecting...")
+        
+        if self.output_task:
+            self.output_task.cancel()
+            self.output_task = None
+
         if self.realtime_client:
             await self.realtime_client.disconnect()
             self.realtime_client = None
@@ -255,22 +321,40 @@ class DecartApp(QMainWindow):
     # --- Stream Handling ---
     def handle_remote_stream(self, transformed_stream):
         """
-        Callback from Decart SDK. Runs in an aiortc background task.
+        Callback from Decart SDK.
         """
-        async def process_frames():
-            async for frame in transformed_stream:
-                # 1. Update UI (Thread-safe via Signal)
-                self.frame_emitter.emit_frame(frame)
+        async def receive_frames():
+            try:
+                async for frame in transformed_stream:
+                    self.latest_transformed_frame = frame
+            except Exception as e:
+                print(f"Error receiving remote stream: {e}")
 
-                # 2. Update Virtual Camera
-                if self.vcam:
-                    # av.VideoFrame -> ndarray (RGB) -> vcam (RGB)
-                    img_rgb = frame.to_ndarray(format="rgb24")
-                    self.vcam.send(img_rgb)
-                    self.vcam.sleep_until_next_frame()
+        async def run_output_loop():
+            # Target FPS for the virtual camera output
+            frame_time = 1 / float(self.target_fps)
+            while True:
+                start_time = asyncio.get_event_loop().time()
+                
+                try:
+                    if self.latest_transformed_frame:
+                        # 1. Update UI (Thread-safe via Signal)
+                        self.frame_emitter.emit_frame(self.latest_transformed_frame)
 
-        # Schedule the processing task
-        asyncio.create_task(process_frames())
+                        # 2. Update Virtual Camera
+                        if self.vcam:
+                            img_rgb = self.latest_transformed_frame.to_ndarray(format="rgb24")
+                            self.vcam.send(img_rgb)
+                except Exception as e:
+                    print(f"Error in output loop: {e}")
+                
+                # Sleep to maintain constant FPS, even if API is slow (simulates frozen frame)
+                elapsed = asyncio.get_event_loop().time() - start_time
+                await asyncio.sleep(max(0.001, frame_time - elapsed))
+
+        # Start both the receiver and the output pump
+        asyncio.create_task(receive_frames())
+        self.output_task = asyncio.create_task(run_output_loop())
 
     @pyqtSlot(QImage)
     def update_video_canvas(self, q_img):
@@ -293,7 +377,13 @@ class DecartApp(QMainWindow):
         asyncio.create_task(self.apply_prompt())
 
 if __name__ == "__main__":
+    # High DPI scaling support
+    QApplication.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
+    
     app = QApplication(sys.argv)
+    app.setApplicationName("LucidCam")
+    app.setApplicationVersion(VERSION)
+    
     loop = QEventLoop(app)
     asyncio.set_event_loop(loop)
 

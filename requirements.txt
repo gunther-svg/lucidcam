@@ -1,10 +1,11 @@
 PyQt6
 qasync
-opencv-python
+opencv-python-headless
 aiortc
 pyvirtualcam
 decart
 keyring
 av
+livekit
 tenacity
 python-dotenv

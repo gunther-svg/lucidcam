@@ -26,3 +26,6 @@ Thumbs.db
 
 # Project specific
 *.log
+
+#screensshots
+decart screenshots/
