@@ -48,7 +48,7 @@ def check_internet():
         return False
 
 if __name__ == "__main__":
-    print("=== AI Video Restyler Diagnostic Tool ===\n")
+    print("=== LucidCam Diagnostic Tool ===\n")
     
     cam_ok = check_camera()
     vcam_ok = check_virtual_cam()

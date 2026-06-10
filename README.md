@@ -1,6 +1,6 @@
-# 🎭 AI Video Restyler
+# 🎭 LucidCam
 
-Transform your live webcam feed into a work of art using **Decart AI's Lucy 2.1** model. This desktop application provides a real-time, AI-powered "filter" that you can pipe directly into Zoom, OBS, or Teams via a Virtual Camera.
+Transform your live webcam feed into a work of art using **Decart AI's Lucy 2.1** model. **LucidCam** provides a real-time, AI-powered "filter" that you can pipe directly into Zoom, OBS, or Teams via a Virtual Camera.
 
 ---
 

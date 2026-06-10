@@ -63,7 +63,7 @@ QLabel#statusLabel {
 class DecartApp(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("AI Video Restyler")
+        self.setWindowTitle("LucidCam - Real-time AI Restyling")
         self.setMinimumSize(1000, 800)
         self.setStyleSheet(DARK_THEME)
 
