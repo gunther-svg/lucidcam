@@ -3,9 +3,12 @@ import asyncio
 import keyring
 import pyvirtualcam
 import numpy as np
+import base64
+from pathlib import Path
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
-    QLineEdit, QPushButton, QLabel, QScrollArea, QFrame, QMessageBox
+    QLineEdit, QPushButton, QLabel, QScrollArea, QFrame, QMessageBox,
+    QFileDialog
 )
 from PyQt6.QtCore import Qt, pyqtSlot, QSettings
 from PyQt6.QtGui import QImage, QPixmap, QColor, QPalette, QIcon
@@ -21,6 +24,10 @@ import aiohttp
 VERSION = "1.0.0"
 # Placeholder URL for version checking
 UPDATE_URL = "https://raw.githubusercontent.com/YOUR_USERNAME/LucidCam/main/version.txt"
+
+# Supported image formats
+SUPPORTED_IMAGE_FORMATS = (".jpg", ".jpeg", ".png", ".bmp", ".webp")
+MAX_IMAGE_SIZE_MB = 10
 
 # --- Styling ---
 DARK_THEME = """
@@ -60,8 +67,24 @@ QPushButton#presetBtn {
     border: 1px solid #333;
     padding: 5px 15px;
 }
+QPushButton#imageUploadBtn {
+    background-color: #2C2C2C;
+    border: 1px solid #555;
+    padding: 8px 15px;
+    font-size: 12px;
+}
+QPushButton#clearImageBtn {
+    background-color: #4C2C2C;
+    padding: 5px 10px;
+    font-size: 11px;
+}
 QLabel#statusLabel {
     color: #888;
+}
+QLabel#imagePreviewLabel {
+    background-color: #0A0A0A;
+    border: 1px dashed #444;
+    border-radius: 4px;
 }
 """
 
@@ -85,6 +108,10 @@ class DecartApp(QMainWindow):
         self.latest_transformed_frame = None
         self.output_task = None
         self.target_fps = 24
+        
+        # Image/reference support
+        self.reference_image_path = None
+        self.reference_image_data = None
 
         self.init_ui()
         self.load_settings()
@@ -124,16 +151,56 @@ class DecartApp(QMainWindow):
         # Control Panel
         control_panel = QVBoxLayout()
         
-        # Prompt Input
+        # Prompt Input with Image Upload
         prompt_layout = QHBoxLayout()
         self.prompt_input = QLineEdit()
         self.prompt_input.setPlaceholderText("Describe the style change...")
+        
+        self.upload_image_btn = QPushButton("📁 Upload Image")
+        self.upload_image_btn.setObjectName("imageUploadBtn")
+        self.upload_image_btn.clicked.connect(self.upload_reference_image)
+        
         self.apply_btn = QPushButton("Apply")
         self.apply_btn.setObjectName("applyBtn")
         self.apply_btn.clicked.connect(self.apply_prompt)
+        
         prompt_layout.addWidget(self.prompt_input)
+        prompt_layout.addWidget(self.upload_image_btn)
         prompt_layout.addWidget(self.apply_btn)
         control_panel.addLayout(prompt_layout)
+        
+        # Image Preview Area
+        self.image_preview_container = QHBoxLayout()
+        self.image_preview_label = QLabel()
+        self.image_preview_label.setObjectName("imagePreviewLabel")
+        self.image_preview_label.setFixedSize(80, 80)
+        self.image_preview_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.image_preview_label.setText("No image")
+        self.image_preview_label.setStyleSheet("""
+            QLabel {
+                background-color: #0A0A0A;
+                border: 1px dashed #444;
+                border-radius: 4px;
+                font-size: 11px;
+                color: #666;
+            }
+        """)
+        
+        self.image_info_label = QLabel("No image selected")
+        self.image_info_label.setStyleSheet("color: #888; font-size: 11px;")
+        
+        self.clear_image_btn = QPushButton("✕")
+        self.clear_image_btn.setObjectName("clearImageBtn")
+        self.clear_image_btn.setFixedSize(30, 30)
+        self.clear_image_btn.clicked.connect(self.clear_reference_image)
+        self.clear_image_btn.setEnabled(False)
+        
+        self.image_preview_container.addWidget(self.image_preview_label)
+        self.image_preview_container.addWidget(self.image_info_label)
+        self.image_preview_container.addStretch()
+        self.image_preview_container.addWidget(self.clear_image_btn)
+        
+        control_panel.addLayout(self.image_preview_container)
 
         # Presets
         presets_scroll = QScrollArea()
@@ -172,6 +239,75 @@ class DecartApp(QMainWindow):
         control_panel.addLayout(bottom_bar)
 
         main_layout.addLayout(control_panel)
+
+    # --- Image Upload and Management ---
+    def upload_reference_image(self):
+        """Open file dialog to select a reference image."""
+        file_dialog = QFileDialog(self)
+        file_dialog.setFileMode(QFileDialog.FileMode.ExistingFile)
+        file_dialog.setNameFilter("Images (*.jpg *.jpeg *.png *.bmp *.webp)")
+        
+        if file_dialog.exec() == QFileDialog.DialogCode.Accepted:
+            file_path = file_dialog.selectedFiles()[0]
+            self.load_reference_image(file_path)
+
+    def load_reference_image(self, file_path):
+        """Load and validate a reference image from file path."""
+        try:
+            file_path = Path(file_path)
+            
+            # Validate file exists
+            if not file_path.exists():
+                QMessageBox.warning(self, "Error", "File not found.")
+                return
+            
+            # Validate file size
+            file_size_mb = file_path.stat().st_size / (1024 * 1024)
+            if file_size_mb > MAX_IMAGE_SIZE_MB:
+                QMessageBox.warning(self, "Error", 
+                    f"Image exceeds {MAX_IMAGE_SIZE_MB}MB limit. Current: {file_size_mb:.1f}MB")
+                return
+            
+            # Validate file format
+            if file_path.suffix.lower() not in SUPPORTED_IMAGE_FORMATS:
+                QMessageBox.warning(self, "Error", 
+                    f"Unsupported format. Supported: {', '.join(SUPPORTED_IMAGE_FORMATS)}")
+                return
+            
+            # Read and encode image
+            with open(file_path, "rb") as f:
+                self.reference_image_data = base64.b64encode(f.read()).decode("utf-8")
+            
+            self.reference_image_path = str(file_path)
+            
+            # Update UI preview
+            pixmap = QPixmap(str(file_path))
+            scaled_pixmap = pixmap.scaledToWidth(80, Qt.TransformationMode.SmoothTransformation)
+            self.image_preview_label.setPixmap(scaled_pixmap)
+            self.image_preview_label.setText("")
+            
+            # Update info label
+            file_name = file_path.name
+            self.image_info_label.setText(f"📷 {file_name}\n{file_size_mb:.1f}MB")
+            
+            # Enable clear button
+            self.clear_image_btn.setEnabled(True)
+            
+            print(f"Reference image loaded: {file_path}")
+            
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to load image: {str(e)}")
+            print(f"Error loading image: {e}")
+
+    def clear_reference_image(self):
+        """Clear the loaded reference image."""
+        self.reference_image_path = None
+        self.reference_image_data = None
+        self.image_preview_label.setPixmap(QPixmap())
+        self.image_preview_label.setText("No image")
+        self.image_info_label.setText("No image selected")
+        self.clear_image_btn.setEnabled(False)
+        print("Reference image cleared.")
 
     # --- Persistence Logic ---
     def load_settings(self):
@@ -277,7 +413,7 @@ class DecartApp(QMainWindow):
                     model=model,
                     on_remote_stream=self.handle_remote_stream,
                     initial_state=ModelState(
-                        prompt=Prompt(text=self.prompt_input.text() or "A cinematic portrait"),
+                        prompt=self.build_prompt(),
                     ),
                 ),
             )
@@ -363,13 +499,61 @@ class DecartApp(QMainWindow):
         scaled_pixmap = pixmap.scaled(self.video_canvas.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
         self.video_canvas.setPixmap(scaled_pixmap)
 
+    # --- Prompt Building ---
+    def build_prompt(self):
+        """
+        Build a Prompt object with both text and optional image data.
+        Returns a Decart Prompt object compatible with the RealtimeClient.
+        """
+        prompt_text = self.prompt_input.text() or "A cinematic portrait"
+        
+        # Create base Prompt with text
+        prompt_dict = {"text": prompt_text}
+        
+        # Add image data if available
+        if self.reference_image_data:
+            prompt_dict["image"] = self.reference_image_data
+            print(f"Building prompt with text and reference image ({len(self.reference_image_data)} bytes encoded)")
+        else:
+            print(f"Building prompt with text only: {prompt_text}")
+        
+        return Prompt(**prompt_dict)
+
     # --- UI Actions ---
     @asyncSlot()
     async def apply_prompt(self):
-        if self.realtime_client and self.realtime_client.is_connected:
+        """
+        Apply the current prompt (text + optional image) to the Decart realtime stream.
+        Supports both text-only and text+image prompts.
+        """
+        if not self.realtime_client or not self.realtime_client.is_connected:
+            QMessageBox.warning(self, "Warning", "Not connected. Please click Connect first.")
+            return
+        
+        try:
             prompt_text = self.prompt_input.text()
-            await self.realtime_client.set_prompt(prompt_text)
-            self.status_label.setText(f"Status: Live (Prompt: {prompt_text})")
+            if not prompt_text.strip():
+                QMessageBox.warning(self, "Warning", "Please enter a prompt description.")
+                return
+            
+            # Build prompt with text and optional image
+            prompt = self.build_prompt()
+            
+            # Send to Decart API
+            await self.realtime_client.set_prompt(prompt)
+            
+            # Update status with prompt info
+            status_text = f"Status: Live (Prompt: {prompt_text}"
+            if self.reference_image_data:
+                status_text += " + 📷 Reference Image"
+            status_text += ")"
+            self.status_label.setText(status_text)
+            
+            print(f"Prompt applied successfully.")
+            
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to apply prompt: {str(e)}")
+            print(f"Error applying prompt: {e}")
 
     def set_preset(self, text):
         self.prompt_input.setText(f"Transform the video into {text} style")
