@@ -2,16 +2,15 @@ import cv2
 import asyncio
 import threading
 import time
-import av
-from fractions import Fraction
-from aiortc import MediaStreamTrack
+from livekit.rtc import VideoSource, LocalVideoTrack, VideoFrame, VideoBufferType
 from PyQt6.QtCore import pyqtSignal, QObject
 from PyQt6.QtGui import QImage
+
 
 class CameraThread(threading.Thread):
     """
     Separate thread for capturing frames from the webcam using OpenCV.
-    Handles resizing to target resolution (720p) and keeps the latest frame.
+    Handles resizing to target resolution and keeps the latest frame.
     """
     def __init__(self, camera_index=0, target_width=1280, target_height=720):
         super().__init__(daemon=True)
@@ -38,54 +37,87 @@ class CameraThread(threading.Thread):
 
             # Resize to target resolution immediately
             frame = cv2.resize(frame, (self.target_width, self.target_height))
-            
+
             # Store latest frame (BGR)
             self.latest_frame = frame
             self.frame_ready_event.set()
-        
+
         self.cap.release()
 
     def stop(self):
         self.running = False
 
-class LocalVideoStreamTrack(MediaStreamTrack):
-    """
-    A video track that yields frames from the CameraThread.
-    """
-    kind = "video"
 
-    def __init__(self, camera_thread):
-        super().__init__()
+class LiveKitCameraSource:
+    """
+    Bridges the CameraThread to a LiveKit VideoSource.
+    Continuously pushes camera frames into the LiveKit VideoSource
+    so a LocalVideoTrack can be used with the Decart RealtimeClient.
+    """
+    def __init__(self, camera_thread: CameraThread, fps: int = 24):
         self.camera_thread = camera_thread
-        self._timestamp = 0
-        self._start_time = None
+        self.fps = fps
+        self.width = camera_thread.target_width
+        self.height = camera_thread.target_height
 
-    async def recv(self):
-        # Wait for the next frame if none is available
-        if self.camera_thread.latest_frame is None:
-            # We use a non-blocking wait in the async loop
-            while self.camera_thread.latest_frame is None and self.camera_thread.running:
-                await asyncio.sleep(0.01)
+        # Create a LiveKit VideoSource and corresponding LocalVideoTrack
+        self.video_source = VideoSource(self.width, self.height)
+        self.track = LocalVideoTrack.create_video_track("camera", self.video_source)
 
-        # Grab the latest frame and clear the event
-        frame_bgr = self.camera_thread.latest_frame
-        self.camera_thread.frame_ready_event.clear()
+        self._running = False
+        self._task = None
 
-        # Convert BGR to YUV420P for aiortc/WebRTC
-        # This is a CPU intensive part, but doing it here ensures it's in the WebRTC pipeline
-        frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
-        video_frame = av.VideoFrame.from_ndarray(frame_rgb, format="rgb24")
-        
-        # Set timing information
-        if self._start_time is None:
-            self._start_time = time.time()
-        
-        # Calculate timestamp based on real time to maintain sync
-        pts = int((time.time() - self._start_time) * 90000)
-        video_frame.pts = pts
-        video_frame.time_base = Fraction(1, 90000)
-        
-        return video_frame
+    async def start(self):
+        """Start the async loop that pushes camera frames to the LiveKit VideoSource."""
+        self._running = True
+        self._task = asyncio.create_task(self._push_frames())
+
+    async def _push_frames(self):
+        """Continuously push camera frames to the LiveKit VideoSource at target FPS."""
+        frame_interval = 1.0 / self.fps
+        start_time = time.monotonic()
+        frame_count = 0
+
+        while self._running:
+            loop_start = time.monotonic()
+
+            if self.camera_thread.latest_frame is not None:
+                frame_bgr = self.camera_thread.latest_frame
+
+                # Convert BGR (OpenCV) to RGBA (LiveKit)
+                frame_rgba = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGBA)
+
+                # Create LiveKit VideoFrame from the RGBA data
+                lk_frame = VideoFrame(
+                    self.width,
+                    self.height,
+                    VideoBufferType.RGBA,
+                    frame_rgba.tobytes(),
+                )
+
+                # Compute timestamp in microseconds
+                timestamp_us = int((time.monotonic() - start_time) * 1_000_000)
+
+                # Push the frame to the VideoSource
+                self.video_source.capture_frame(lk_frame, timestamp_us=timestamp_us)
+                frame_count += 1
+
+            # Maintain target FPS
+            elapsed = time.monotonic() - loop_start
+            sleep_time = max(0.001, frame_interval - elapsed)
+            await asyncio.sleep(sleep_time)
+
+    async def stop(self):
+        """Stop the frame push loop."""
+        self._running = False
+        if self._task:
+            self._task.cancel()
+            try:
+                await self._task
+            except asyncio.CancelledError:
+                pass
+            self._task = None
+
 
 class FrameEmitter(QObject):
     """
@@ -94,11 +126,31 @@ class FrameEmitter(QObject):
     frame_received = pyqtSignal(QImage)
 
     def emit_frame(self, av_frame):
-        # Convert av.VideoFrame to QImage
-        # av_frame is usually YUV420P, convert to RGB first
-        img_data = av_frame.to_ndarray(format="rgb24")
-        height, width, channel = img_data.shape
-        bytes_per_line = 3 * width
-        q_img = QImage(img_data.data, width, height, bytes_per_line, QImage.Format.Format_RGB888)
-        # We need to copy the image because the underlying data might be reused
-        self.frame_received.emit(q_img.copy())
+        """
+        Convert an av.VideoFrame or similar frame object to QImage and emit.
+        Handles both av.VideoFrame (with to_ndarray) and raw numpy arrays.
+        """
+        try:
+            if hasattr(av_frame, 'to_ndarray'):
+                # av.VideoFrame from Decart remote stream
+                img_data = av_frame.to_ndarray(format="rgb24")
+            elif hasattr(av_frame, 'data') and hasattr(av_frame, 'width'):
+                # LiveKit VideoFrame — convert from RGBA bytes to numpy
+                import numpy as np
+                data = bytes(av_frame.data)
+                img_data = np.frombuffer(data, dtype=np.uint8).reshape(
+                    av_frame.height, av_frame.width, 4
+                )
+                # Convert RGBA to RGB for QImage
+                img_data = img_data[:, :, :3].copy()
+            else:
+                # Assume it's already a numpy array (RGB)
+                img_data = av_frame
+
+            height, width, channel = img_data.shape
+            bytes_per_line = 3 * width
+            q_img = QImage(img_data.data, width, height, bytes_per_line, QImage.Format.Format_RGB888)
+            # We need to copy the image because the underlying data might be reused
+            self.frame_received.emit(q_img.copy())
+        except Exception as e:
+            print(f"Error in FrameEmitter.emit_frame: {e}")

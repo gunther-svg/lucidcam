@@ -14,11 +14,12 @@ from PyQt6.QtCore import Qt, pyqtSlot, QSettings
 from PyQt6.QtGui import QImage, QPixmap, QColor, QPalette, QIcon
 from qasync import QEventLoop, asyncSlot
 
-from decart import DecartClient, models
+from decart import DecartClient, models, SetInput
 from decart.realtime import RealtimeClient, RealtimeConnectOptions
 from decart.types import ModelState, Prompt
 
-from video_pipeline import CameraThread, LocalVideoStreamTrack, FrameEmitter
+from video_pipeline import CameraThread, LiveKitCameraSource, FrameEmitter
+from livekit.rtc import VideoStream
 import aiohttp
 
 VERSION = "1.0.0"
@@ -101,6 +102,7 @@ class DecartApp(QMainWindow):
         # State
         self.realtime_client = None
         self.camera_thread = None
+        self.camera_source = None  # LiveKitCameraSource bridge
         self.vcam = None
         self.frame_emitter = FrameEmitter()
         self.frame_emitter.frame_received.connect(self.update_video_canvas)
@@ -112,6 +114,10 @@ class DecartApp(QMainWindow):
         # Image/reference support
         self.reference_image_path = None
         self.reference_image_data = None
+
+        # Connection task handling
+        self.connect_task = None
+        self.connecting = False
 
         self.init_ui()
         self.load_settings()
@@ -154,7 +160,7 @@ class DecartApp(QMainWindow):
         # Prompt Input with Image Upload
         prompt_layout = QHBoxLayout()
         self.prompt_input = QLineEdit()
-        self.prompt_input.setPlaceholderText("Describe the style change...")
+        self.prompt_input.setPlaceholderText("e.g. Substitute the character in the video with a cartoon bear with brown fur.")
         
         self.upload_image_btn = QPushButton("📁 Upload Image")
         self.upload_image_btn.setObjectName("imageUploadBtn")
@@ -209,12 +215,23 @@ class DecartApp(QMainWindow):
         presets_scroll.setFrameShape(QFrame.Shape.NoFrame)
         presets_content = QWidget()
         presets_layout = QHBoxLayout(presets_content)
-        
-        presets = ["Albert Stylestein", "Capybara", "Statue of Liberty", "Cyberpunk", "Oil Painting"]
-        for p in presets:
-            btn = QPushButton(p)
+        # Presets with proper Decart prompt templates
+        # Per Lucy 2.1 docs: use "Substitute the character in the video with <description>."
+        # for character transforms, and "Change <attribute> to <value>." for attribute changes.
+        self.presets = {
+            "Albert Stylestein": "Substitute the character in the video with an older man with wild white hair, a thick white mustache, deep wrinkles, and warm, intelligent eyes.",
+            "Capybara": "Substitute the character in the video with a large, calm capybara with coarse brown fur, a rounded snout, and small dark eyes.",
+            "Statue of Liberty": "Substitute the character in the video with the Statue of Liberty, a green-patinated copper figure wearing a spiked crown and holding a torch.",
+            "Anime": "Substitute the character in the video with an anime-style character with large expressive eyes, smooth cel-shaded skin, and vibrant hair.",
+            "Cyberpunk": "Change the scene to a cyberpunk aesthetic with neon lighting, holographic overlays, and futuristic tech elements.",
+            "Oil Painting": "Change the visual style to a thick-brushstroke oil painting with rich, warm colors and visible canvas texture.",
+            "Tuxedo": "Change the person's clothing to a sharp black tuxedo with a white dress shirt and black bow tie.",
+            "Wedding Dress": "Change the person's clothing to a flowing white wedding dress with lace detailing.",
+        }
+        for name, prompt_text in self.presets.items():
+            btn = QPushButton(name)
             btn.setObjectName("presetBtn")
-            btn.clicked.connect(lambda checked, text=p: self.set_preset(text))
+            btn.clicked.connect(lambda checked, n=name, p=prompt_text: self.set_preset(n, p))
             presets_layout.addWidget(btn)
         
         presets_scroll.setWidget(presets_content)
@@ -361,10 +378,35 @@ class DecartApp(QMainWindow):
     # --- Connection Logic ---
     @asyncSlot()
     async def toggle_connection(self):
-        if self.realtime_client and self.realtime_client.is_connected:
+        # If a connection attempt is in progress, allow cancel
+        if self.connecting and self.connect_task and not self.connect_task.done():
+            # Cancel the ongoing connection task
+            self.connect_task.cancel()
+            await self.disconnect()
+            return
+
+        # Normal toggle based on current connection state
+        if self.realtime_client and (
+            callable(getattr(self.realtime_client, "is_connected", None))
+            and self.realtime_client.is_connected()
+        ):
             await self.disconnect()
         else:
+            # Start connection as a separate task to allow cancellation
+            self.connect_task = asyncio.create_task(self._connect())
+            # No await here; task runs in background
+
+    async def _connect(self):
+        self.connecting = True
+        self.connect_btn.setText("Cancel")
+        self.connect_btn.setEnabled(True)
+        try:
             await self.connect()
+        except asyncio.CancelledError:
+            print("Connection attempt cancelled by user.")
+            await self.disconnect()
+        finally:
+            self.connecting = False
 
     async def connect(self):
         api_key = self.api_key_input.text().strip()
@@ -373,7 +415,7 @@ class DecartApp(QMainWindow):
             return
 
         self.status_label.setText("Status: Connecting...")
-        self.connect_btn.setEnabled(False)
+        self.connect_btn.setEnabled(True)
 
         try:
             # 3. Setup Decart SDK
@@ -403,18 +445,33 @@ class DecartApp(QMainWindow):
             if not self.camera_thread.running:
                 raise Exception("Could not open local camera. It might be in use by another app.")
 
-            local_track = LocalVideoStreamTrack(self.camera_thread)
+            # 3. Create LiveKit video source bridge and start pushing frames
+            self.camera_source = LiveKitCameraSource(self.camera_thread, fps=self.target_fps)
+            await self.camera_source.start()
+            print(f"LiveKit camera source started ({target_width}x{target_height} @ {self.target_fps}fps)")
+
+            # 4. Connect to Decart using the LiveKit track
+            # Build initial state: prompt goes in Prompt(), image goes in ModelState()
+            prompt_text = self.prompt_input.text() or "Substitute the character in the video with an older man with wild white hair, a thick white mustache, deep wrinkles, and warm, intelligent eyes."
+            initial_state = ModelState(
+                prompt=Prompt(text=prompt_text, enhance=True),
+            )
+            # Add reference image as raw bytes if available
+            image_bytes = self._get_reference_image_bytes()
+            if image_bytes:
+                initial_state.image = image_bytes
+                print(f"Connecting with prompt + reference image")
+            else:
+                print(f"Connecting with prompt only: {prompt_text}")
 
             self.realtime_client = await RealtimeClient.connect(
                 base_url=client.base_url,
                 api_key=client.api_key,
-                local_track=local_track,
+                local_track=self.camera_source.track,
                 options=RealtimeConnectOptions(
                     model=model,
                     on_remote_stream=self.handle_remote_stream,
-                    initial_state=ModelState(
-                        prompt=self.build_prompt(),
-                    ),
+                    initial_state=initial_state,
                 ),
             )
 
@@ -434,8 +491,18 @@ class DecartApp(QMainWindow):
             self.output_task = None
 
         if self.realtime_client:
-            await self.realtime_client.disconnect()
+            try:
+                await self.realtime_client.disconnect()
+            except Exception as e:
+                print(f"Error disconnecting realtime client: {e}")
             self.realtime_client = None
+
+        if self.camera_source:
+            try:
+                await self.camera_source.stop()
+            except Exception as e:
+                print(f"Error stopping camera source: {e}")
+            self.camera_source = None
         
         if self.camera_thread:
             self.camera_thread.stop()
@@ -458,11 +525,15 @@ class DecartApp(QMainWindow):
     def handle_remote_stream(self, transformed_stream):
         """
         Callback from Decart SDK.
+        transformed_stream is a LiveKit RemoteVideoTrack.
+        We wrap it with VideoStream to iterate over frames.
         """
         async def receive_frames():
             try:
-                async for frame in transformed_stream:
-                    self.latest_transformed_frame = frame
+                video_stream = VideoStream(transformed_stream)
+                async for frame_event in video_stream:
+                    # frame_event is a VideoFrameEvent with .frame (VideoFrame)
+                    self.latest_transformed_frame = frame_event.frame
             except Exception as e:
                 print(f"Error receiving remote stream: {e}")
 
@@ -474,17 +545,34 @@ class DecartApp(QMainWindow):
                 
                 try:
                     if self.latest_transformed_frame:
+                        frame = self.latest_transformed_frame
+
+                        # Convert LiveKit VideoFrame to numpy RGB for display and vcam
+                        # LiveKit VideoFrame: convert to RGBA then strip alpha
+                        from livekit.rtc import VideoBufferType
+                        argb_frame = frame.convert(VideoBufferType.RGBA)
+                        img_rgba = np.frombuffer(argb_frame.data, dtype=np.uint8).reshape(
+                            argb_frame.height, argb_frame.width, 4
+                        )
+                        img_rgb = img_rgba[:, :, :3].copy()  # Drop alpha channel
+
                         # 1. Update UI (Thread-safe via Signal)
-                        self.frame_emitter.emit_frame(self.latest_transformed_frame)
+                        height, width, _ = img_rgb.shape
+                        bytes_per_line = 3 * width
+                        q_img = QImage(img_rgb.data, width, height, bytes_per_line, QImage.Format.Format_RGB888)
+                        self.frame_emitter.frame_received.emit(q_img.copy())
 
                         # 2. Update Virtual Camera
                         if self.vcam:
-                            img_rgb = self.latest_transformed_frame.to_ndarray(format="rgb24")
+                            # Resize if vcam dimensions differ from frame
+                            import cv2
+                            if img_rgb.shape[1] != self.vcam.width or img_rgb.shape[0] != self.vcam.height:
+                                img_rgb = cv2.resize(img_rgb, (self.vcam.width, self.vcam.height))
                             self.vcam.send(img_rgb)
                 except Exception as e:
                     print(f"Error in output loop: {e}")
                 
-                # Sleep to maintain constant FPS, even if API is slow (simulates frozen frame)
+                # Sleep to maintain constant FPS
                 elapsed = asyncio.get_event_loop().time() - start_time
                 await asyncio.sleep(max(0.001, frame_time - elapsed))
 
@@ -500,33 +588,32 @@ class DecartApp(QMainWindow):
         self.video_canvas.setPixmap(scaled_pixmap)
 
     # --- Prompt Building ---
-    def build_prompt(self):
+    def _get_reference_image_bytes(self):
         """
-        Build a Prompt object with both text and optional image data.
-        Returns a Decart Prompt object compatible with the RealtimeClient.
+        Return the reference image as raw bytes for the Decart API,
+        or None if no image is loaded.
+        The Decart SDK accepts bytes, a URL string, or a file path string.
         """
-        prompt_text = self.prompt_input.text() or "A cinematic portrait"
-        
-        # Create base Prompt with text
-        prompt_dict = {"text": prompt_text}
-        
-        # Add image data if available
-        if self.reference_image_data:
-            prompt_dict["image"] = self.reference_image_data
-            print(f"Building prompt with text and reference image ({len(self.reference_image_data)} bytes encoded)")
-        else:
-            print(f"Building prompt with text only: {prompt_text}")
-        
-        return Prompt(**prompt_dict)
+        if self.reference_image_path:
+            try:
+                with open(self.reference_image_path, "rb") as f:
+                    return f.read()
+            except Exception as e:
+                print(f"Error reading reference image: {e}")
+                return None
+        return None
 
     # --- UI Actions ---
     @asyncSlot()
     async def apply_prompt(self):
         """
         Apply the current prompt (text + optional image) to the Decart realtime stream.
-        Supports both text-only and text+image prompts.
+        Uses set() for atomic state updates (prompt + image together).
         """
-        if not self.realtime_client or not self.realtime_client.is_connected:
+        if not self.realtime_client or not (
+            callable(getattr(self.realtime_client, "is_connected", None))
+            and self.realtime_client.is_connected()
+        ):
             QMessageBox.warning(self, "Warning", "Not connected. Please click Connect first.")
             return
         
@@ -536,17 +623,26 @@ class DecartApp(QMainWindow):
                 QMessageBox.warning(self, "Warning", "Please enter a prompt description.")
                 return
             
-            # Build prompt with text and optional image
-            prompt = self.build_prompt()
+            # Use set() for atomic update of prompt + image
+            set_input_kwargs = {
+                "prompt": prompt_text,
+                "enhance": True,
+            }
             
-            # Send to Decart API
-            await self.realtime_client.set_prompt(prompt)
+            # Add reference image if available
+            image_bytes = self._get_reference_image_bytes()
+            if image_bytes:
+                set_input_kwargs["image"] = image_bytes
+                print(f"Applying prompt with reference image")
+            else:
+                print(f"Applying prompt: {prompt_text}")
             
-            # Update status with prompt info
-            status_text = f"Status: Live (Prompt: {prompt_text}"
-            if self.reference_image_data:
-                status_text += " + 📷 Reference Image"
-            status_text += ")"
+            await self.realtime_client.set(SetInput(**set_input_kwargs))
+            
+            # Update status
+            status_text = f"Status: Live | {prompt_text[:40]}"
+            if image_bytes:
+                status_text += " + 📷"
             self.status_label.setText(status_text)
             
             print(f"Prompt applied successfully.")
@@ -555,10 +651,10 @@ class DecartApp(QMainWindow):
             QMessageBox.critical(self, "Error", f"Failed to apply prompt: {str(e)}")
             print(f"Error applying prompt: {e}")
 
-    def set_preset(self, text):
-        self.prompt_input.setText(f"Transform the video into {text} style")
+    def set_preset(self, name, prompt_text):
+        self.prompt_input.setText(prompt_text)
         # Trigger apply
-        asyncio.create_task(self.apply_prompt())
+        self.apply_prompt()
 
 if __name__ == "__main__":
     # High DPI scaling support
