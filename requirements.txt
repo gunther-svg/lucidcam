@@ -9,3 +9,5 @@ av
 livekit
 tenacity
 python-dotenv
+Pillow>=10.0.0
+aiohttp

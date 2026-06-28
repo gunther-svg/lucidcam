@@ -1,6 +1,7 @@
 import sys
 import asyncio
 import keyring
+import subprocess
 import pyvirtualcam
 import numpy as np
 import base64
@@ -21,6 +22,7 @@ from decart.types import ModelState, Prompt
 from video_pipeline import CameraThread, LiveKitCameraSource, FrameEmitter
 from livekit.rtc import VideoStream
 import aiohttp
+from providers.remote_provider import RemoteProvider
 
 VERSION = "1.0.0"
 # Placeholder URL for version checking
@@ -87,6 +89,39 @@ QLabel#imagePreviewLabel {
     border: 1px dashed #444;
     border-radius: 4px;
 }
+/* Backend selector toggle buttons */
+QPushButton#backendBtn {
+    background-color: #1E1E1E;
+    border: 1px solid #444;
+    border-radius: 4px;
+    padding: 5px 14px;
+    font-size: 12px;
+    font-weight: normal;
+    color: #999;
+    min-width: 90px;
+}
+QPushButton#backendBtn:hover {
+    background-color: #2A2A2A;
+    color: #E0E0E0;
+}
+QPushButton#backendBtn:checked {
+    background-color: #1A3A5C;
+    border-color: #007AFF;
+    color: #4DA6FF;
+    font-weight: bold;
+}
+QLabel#backendLabel {
+    color: #666;
+    font-size: 11px;
+}
+QLineEdit#spaceUrlInput {
+    background-color: #1A2535;
+    border: 1px solid #1A4A7A;
+    border-radius: 4px;
+    padding: 5px 8px;
+    color: #7AB8FF;
+    font-size: 11px;
+}
 """
 
 class DecartApp(QMainWindow):
@@ -119,6 +154,11 @@ class DecartApp(QMainWindow):
         self.connect_task = None
         self.connecting = False
 
+        # --- HF Space backend (RemoteProvider) ---
+        self.backend_mode = "decart"         # "decart" | "remote"
+        self.remote_provider = None          # RemoteProvider instance
+        self.remote_output_task = None       # async output loop task
+
         self.init_ui()
         self.load_settings()
         self.load_api_key()
@@ -128,7 +168,40 @@ class DecartApp(QMainWindow):
         self.setCentralWidget(central_widget)
         main_layout = QVBoxLayout(central_widget)
 
-        # Top Bar: API Key
+        # ── Backend Selector Bar ───────────────────────────────────
+        backend_bar = QHBoxLayout()
+        backend_bar.setSpacing(6)
+
+        backend_label = QLabel("Backend:")
+        backend_label.setObjectName("backendLabel")
+        backend_label.setFixedWidth(58)
+
+        self.decart_btn = QPushButton("Decart API")
+        self.decart_btn.setObjectName("backendBtn")
+        self.decart_btn.setCheckable(True)
+        self.decart_btn.setChecked(True)
+        self.decart_btn.clicked.connect(lambda: self._set_backend("decart"))
+
+        self.remote_btn = QPushButton("HF Space")
+        self.remote_btn.setObjectName("backendBtn")
+        self.remote_btn.setCheckable(True)
+        self.remote_btn.clicked.connect(lambda: self._set_backend("remote"))
+
+        self.space_url_input = QLineEdit()
+        self.space_url_input.setObjectName("spaceUrlInput")
+        self.space_url_input.setPlaceholderText(
+            "https://gunther-svg-lucidcam-lucy-backend.hf.space"
+        )
+        self.space_url_input.setVisible(False)
+
+        backend_bar.addWidget(backend_label)
+        backend_bar.addWidget(self.decart_btn)
+        backend_bar.addWidget(self.remote_btn)
+        backend_bar.addWidget(self.space_url_input, stretch=1)
+        backend_bar.addStretch()
+        main_layout.addLayout(backend_bar)
+
+        # ── Top Bar: Decart API Key ───────────────────────────────
         top_bar = QHBoxLayout()
         self.api_key_input = QLineEdit()
         self.api_key_input.setPlaceholderText("Enter Decart API Key")
@@ -326,11 +399,33 @@ class DecartApp(QMainWindow):
         self.clear_image_btn.setEnabled(False)
         print("Reference image cleared.")
 
+    # --- Backend Selector ---
+    def _set_backend(self, mode: str):
+        """Switch between 'decart' and 'remote' backend modes."""
+        self.backend_mode = mode
+        self.decart_btn.setChecked(mode == "decart")
+        self.remote_btn.setChecked(mode == "remote")
+        # Show/hide relevant fields
+        self.api_key_input.setVisible(mode == "decart")
+        self.space_url_input.setVisible(mode == "remote")
+        # Find and show/hide the Save Key button (sibling of api_key_input)
+        for i in range(self.api_key_input.parent().layout().count() if self.api_key_input.parent() else 0):
+            pass  # layout visibility handled via api_key_input.setVisible()
+
     # --- Persistence Logic ---
     def load_settings(self):
         # Restore last prompt
         last_prompt = self.settings.value("last_prompt", "A cinematic portrait")
         self.prompt_input.setText(last_prompt)
+        
+        # Restore HF Space URL
+        space_url = self.settings.value("space_url", "")
+        if space_url:
+            self.space_url_input.setText(space_url)
+
+        # Restore backend mode
+        saved_mode = self.settings.value("backend_mode", "decart")
+        self._set_backend(saved_mode)
         
         # Restore window geometry (size/position)
         geometry = self.settings.value("geometry")
@@ -341,6 +436,8 @@ class DecartApp(QMainWindow):
         # Save settings on exit
         self.settings.setValue("last_prompt", self.prompt_input.text())
         self.settings.setValue("geometry", self.saveGeometry())
+        self.settings.setValue("space_url", self.space_url_input.text())
+        self.settings.setValue("backend_mode", self.backend_mode)
         super().closeEvent(event)
 
     # --- Update Logic ---
@@ -409,6 +506,12 @@ class DecartApp(QMainWindow):
             self.connecting = False
 
     async def connect(self):
+        # ── Route to the appropriate backend ─────────────────────
+        if self.backend_mode == "remote":
+            await self._connect_remote()
+            return
+
+        # ── Decart API path (unchanged) ───────────────────────────
         api_key = self.api_key_input.text().strip()
         if not api_key:
             QMessageBox.warning(self, "Error", "Please enter an API Key.")
@@ -486,10 +589,16 @@ class DecartApp(QMainWindow):
     async def disconnect(self):
         self.status_label.setText("Status: Disconnecting...")
         
+        # ── Cancel output tasks ───────────────────────────────────
         if self.output_task:
             self.output_task.cancel()
             self.output_task = None
 
+        if self.remote_output_task:
+            self.remote_output_task.cancel()
+            self.remote_output_task = None
+
+        # ── Stop Decart realtime client ───────────────────────────
         if self.realtime_client:
             try:
                 await self.realtime_client.disconnect()
@@ -497,6 +606,15 @@ class DecartApp(QMainWindow):
                 print(f"Error disconnecting realtime client: {e}")
             self.realtime_client = None
 
+        # ── Stop Remote provider ──────────────────────────────────
+        if self.remote_provider:
+            try:
+                await self.remote_provider.stop()
+            except Exception as e:
+                print(f"Error stopping remote provider: {e}")
+            self.remote_provider = None
+
+        # ── Stop camera source (Decart path) ──────────────────────
         if self.camera_source:
             try:
                 await self.camera_source.stop()
@@ -603,13 +721,192 @@ class DecartApp(QMainWindow):
                 return None
         return None
 
+    # --- HF Space Remote Connection ---
+
+    async def _connect_remote(self):
+        """
+        Connect to the HF Space backend using RemoteProvider.
+        Polls /health until the Space is ready (handles cold-start).
+        """
+        space_url = self.space_url_input.text().strip()
+        if not space_url:
+            QMessageBox.warning(
+                self, "Error",
+                "Please enter the HF Space URL.\n"
+                "Example: https://gunther-svg-lucidcam-lucy-backend.hf.space"
+            )
+            self.reset_ui()
+            return
+
+        # Read HF token from CLI
+        try:
+            result = subprocess.run(
+                ["hf", "auth", "token"],
+                capture_output=True, text=True, timeout=5
+            )
+            hf_token = result.stdout.strip()
+            if not hf_token:
+                raise ValueError("Token output was empty")
+        except Exception as e:
+            QMessageBox.warning(
+                self, "HF Token Error",
+                f"Could not read HuggingFace token: {e}\n"
+                "Please run 'hf auth login' in your terminal first."
+            )
+            self.reset_ui()
+            return
+
+        try:
+            # 1. Start virtual camera
+            try:
+                self.vcam = pyvirtualcam.Camera(
+                    width=1280, height=720, fps=self.target_fps
+                )
+                print(f"Virtual camera started: {self.vcam.device}")
+            except Exception as e:
+                QMessageBox.critical(
+                    self, "Driver Missing",
+                    f"Could not start virtual camera. Ensure OBS Virtual Camera "
+                    f"or v4l2loopback is installed.\nError: {e}"
+                )
+                self.reset_ui()
+                return
+
+            # 2. Start webcam capture thread
+            self.camera_thread = CameraThread(target_width=1280, target_height=720)
+            self.camera_thread.start()
+            await asyncio.sleep(1)
+            if not self.camera_thread.running:
+                raise Exception("Could not open local camera. It may be in use by another app.")
+
+            # 3. Create RemoteProvider and begin warm-up polling
+            self.remote_provider = RemoteProvider(
+                space_url=space_url,
+                hf_token=hf_token,
+                chunk_size=16,    # 16 frames ≈ 0.67s at 24fps per inference batch
+                stride=8,         # fire a new batch every 8 new frames ≈ 0.33s
+                fps=self.target_fps,
+            )
+            # Set initial prompt
+            initial_prompt = self.prompt_input.text()
+            if initial_prompt.strip():
+                self.remote_provider.set_prompt(initial_prompt)
+
+            self.status_label.setText(
+                "Status: Warming up HF Space... (cold start may take 30–60s)"
+            )
+            self.connect_btn.setText("Cancel")
+
+            # This blocks until /health returns 'ready' (handles cold-start)
+            await self.remote_provider.start()
+
+            # 4. Start the output loop
+            self.remote_output_task = asyncio.create_task(
+                self._run_remote_output_loop(),
+                name="remote-output-loop"
+            )
+
+            self.status_label.setText("Status: Live (HF Space) | Buffering first batch...")
+            self.connect_btn.setText("Disconnect")
+            self.connect_btn.setEnabled(True)
+
+        except asyncio.CancelledError:
+            print("Remote connection cancelled by user.")
+            await self.disconnect()
+        except Exception as e:
+            QMessageBox.critical(self, "Connection Error", f"Failed to connect to HF Space:\n{e}")
+            await self.disconnect()
+
+    async def _run_remote_output_loop(self):
+        """
+        Output loop for the HF Space backend.
+        Runs at target_fps (24fps):
+          - Pushes the latest camera frame into the RemoteProvider's input buffer
+          - Reads a processed frame from the output queue (or last frame if empty)
+          - Emits it to the UI preview and writes to the virtual camera
+        """
+        import cv2
+        frame_time = 1 / float(self.target_fps)
+        frames_output = 0
+
+        while True:
+            start_time = asyncio.get_event_loop().time()
+
+            try:
+                # Push latest raw camera frame into the provider
+                if self.camera_thread and self.camera_thread.latest_frame is not None:
+                    frame_bgr = self.camera_thread.latest_frame
+                    frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+                    self.remote_provider.push_frame(frame_rgb)
+
+                # Get a processed frame from the output queue
+                output_frame = self.remote_provider.get_output_frame()
+
+                if output_frame is not None:
+                    frames_output += 1
+
+                    # Update UI preview
+                    height, width = output_frame.shape[:2]
+                    bytes_per_line = 3 * width
+                    q_img = QImage(
+                        output_frame.data, width, height,
+                        bytes_per_line, QImage.Format.Format_RGB888
+                    )
+                    self.frame_emitter.frame_received.emit(q_img.copy())
+
+                    # Write to virtual camera
+                    if self.vcam:
+                        vcam_frame = output_frame
+                        if (
+                            output_frame.shape[1] != self.vcam.width
+                            or output_frame.shape[0] != self.vcam.height
+                        ):
+                            vcam_frame = cv2.resize(
+                                output_frame, (self.vcam.width, self.vcam.height)
+                            )
+                        self.vcam.send(vcam_frame)
+
+                    # Update status with queue stats every 24 frames
+                    if frames_output % 24 == 0 and self.remote_provider:
+                        stats = self.remote_provider.get_stats()
+                        self.status_label.setText(
+                            f"Status: Live (HF Space) | "
+                            f"Queue: {stats['output_queue_depth']} frames | "
+                            f"Last batch: {stats['last_inference_time_s']}s"
+                        )
+
+            except Exception as e:
+                print(f"Remote output loop error: {e}")
+
+            elapsed = asyncio.get_event_loop().time() - start_time
+            await asyncio.sleep(max(0.001, frame_time - elapsed))
+
     # --- UI Actions ---
     @asyncSlot()
     async def apply_prompt(self):
         """
-        Apply the current prompt (text + optional image) to the Decart realtime stream.
-        Uses set() for atomic state updates (prompt + image together).
+        Apply the current prompt to whichever backend is active.
+        - Remote mode: updates RemoteProvider.set_prompt() (takes effect on next batch)
+        - Decart mode: sends via RealtimeClient.set() as before
         """
+        prompt_text = self.prompt_input.text()
+        if not prompt_text.strip():
+            QMessageBox.warning(self, "Warning", "Please enter a prompt description.")
+            return
+
+        # ── HF Space remote path ──────────────────────────────────
+        if self.backend_mode == "remote":
+            if not self.remote_provider:
+                QMessageBox.warning(self, "Warning", "Not connected. Please click Connect first.")
+                return
+            self.remote_provider.set_prompt(prompt_text)
+            self.status_label.setText(
+                f"Status: Live (HF Space) | Prompt updated: {prompt_text[:50]}"
+            )
+            print(f"Remote prompt updated: {prompt_text}")
+            return
+
+        # ── Decart API path (unchanged) ───────────────────────────
         if not self.realtime_client or not (
             callable(getattr(self.realtime_client, "is_connected", None))
             and self.realtime_client.is_connected()
@@ -618,11 +915,6 @@ class DecartApp(QMainWindow):
             return
         
         try:
-            prompt_text = self.prompt_input.text()
-            if not prompt_text.strip():
-                QMessageBox.warning(self, "Warning", "Please enter a prompt description.")
-                return
-            
             # Use set() for atomic update of prompt + image
             set_input_kwargs = {
                 "prompt": prompt_text,
@@ -653,7 +945,7 @@ class DecartApp(QMainWindow):
 
     def set_preset(self, name, prompt_text):
         self.prompt_input.setText(prompt_text)
-        # Trigger apply
+        # Trigger apply (works for both backends)
         self.apply_prompt()
 
 if __name__ == "__main__":
