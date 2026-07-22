@@ -23,7 +23,15 @@ class CameraThread(threading.Thread):
         self.cap = None
 
     def run(self):
-        self.cap = cv2.VideoCapture(self.camera_index)
+        import platform
+        if platform.system() == "Windows":
+            # DirectShow is typically much faster to initialize on Windows
+            self.cap = cv2.VideoCapture(self.camera_index, cv2.CAP_DSHOW)
+            if not self.cap.isOpened():
+                self.cap = cv2.VideoCapture(self.camera_index)
+        else:
+            self.cap = cv2.VideoCapture(self.camera_index)
+
         if not self.cap.isOpened():
             print(f"Error: Could not open camera {self.camera_index}")
             return

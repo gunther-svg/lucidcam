@@ -64,7 +64,7 @@ def launch_app():
     subprocess.run([python_exe, app_path])
 
 if __name__ == "__main__":
-    if os.geteuid() == 0:
+    if hasattr(os, "geteuid") and os.geteuid() == 0:
         print("\n[WARNING] You are running this as ROOT/SUDO.")
         print("This will cause permission issues. Please run as a normal user.")
         print("If you need to install system drivers, do that separately.\n")

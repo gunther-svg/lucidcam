@@ -12,13 +12,13 @@ def check_camera():
     if cap.isOpened():
         ret, frame = cap.read()
         if ret:
-            print("✅ Physical Webcam: Found and providing frames.")
+            print("[OK] Physical Webcam: Found and providing frames.")
             cap.release()
             return True
         else:
-            print("❌ Physical Webcam: Found, but failed to capture a frame (is it in use?)")
+            print("[FAIL] Physical Webcam: Found, but failed to capture a frame (is it in use?)")
     else:
-        print("❌ Physical Webcam: Not found at index 0.")
+        print("[FAIL] Physical Webcam: Not found at index 0.")
     cap.release()
     return False
 
@@ -26,10 +26,10 @@ def check_virtual_cam():
     print("\n--- 2. Checking Virtual Camera Driver ---")
     try:
         with pyvirtualcam.Camera(width=640, height=480, fps=20) as cam:
-            print(f"✅ Virtual Camera: Driver is working ({cam.device})")
+            print(f"[OK] Virtual Camera: Driver is working ({cam.device})")
             return True
     except Exception as e:
-        print(f"❌ Virtual Camera: Driver NOT found or failed. Error: {e}")
+        print(f"[FAIL] Virtual Camera: Driver NOT found or failed. Error: {e}")
         if platform.system() == "Windows":
             print("   Hint: Install OBS Studio to get the Virtual Camera driver.")
         else:
@@ -41,10 +41,10 @@ def check_internet():
     try:
         # Just a simple ping/import check
         import decart
-        print("✅ Decart SDK: Library imported successfully.")
+        print("[OK] Decart SDK: Library imported successfully.")
         return True
     except ImportError:
-        print("❌ Decart SDK: Library not installed.")
+        print("[FAIL] Decart SDK: Library not installed.")
         return False
 
 if __name__ == "__main__":
@@ -56,10 +56,10 @@ if __name__ == "__main__":
     
     print("\n" + "="*40)
     if cam_ok and vcam_ok and sdk_ok:
-        print("🎉 STATUS: ALL SYSTEMS GO!")
+        print("STATUS: ALL SYSTEMS GO!")
         print("You are ready to run ./run.sh")
     else:
-        print("⚠️ STATUS: ISSUES DETECTED")
+        print("STATUS: ISSUES DETECTED")
         print("Please fix the errors above before launching.")
     print("="*40)
     input("\nPress Enter to exit...")

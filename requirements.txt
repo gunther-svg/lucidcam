@@ -9,3 +9,4 @@ av
 livekit
 tenacity
 python-dotenv
+pip-system-certs

@@ -123,6 +123,18 @@ class DecartApp(QMainWindow):
         self.load_settings()
         self.load_api_key()
 
+    def show_error_message(self, title, message):
+        from PyQt6.QtCore import QTimer
+        QTimer.singleShot(0, lambda: QMessageBox.critical(self, title, message))
+
+    def show_warning_message(self, title, message):
+        from PyQt6.QtCore import QTimer
+        QTimer.singleShot(0, lambda: QMessageBox.warning(self, title, message))
+
+    def show_info_message(self, title, message):
+        from PyQt6.QtCore import QTimer
+        QTimer.singleShot(0, lambda: QMessageBox.information(self, title, message))
+
     def init_ui(self):
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
@@ -352,16 +364,16 @@ class DecartApp(QMainWindow):
                     if response.status == 200:
                         latest_version = (await response.text()).strip()
                         if latest_version > VERSION:
-                            QMessageBox.information(self, "Update Available", 
+                            self.show_info_message("Update Available", 
                                 f"A new version of LucidCam (v{latest_version}) is available!\n\nPlease visit the GitHub repo to download.")
                         else:
-                            QMessageBox.information(self, "Up to Date", "You are running the latest version of LucidCam.")
+                            self.show_info_message("Up to Date", "You are running the latest version of LucidCam.")
                     else:
                         raise Exception(f"Server returned status {response.status}")
         except Exception as e:
             # We fail silently or with a quiet warning as this isn't critical for core app use
             print(f"Update check failed: {e}")
-            QMessageBox.warning(self, "Update Check Failed", "Could not check for updates. Check your internet connection.")
+            self.show_warning_message("Update Check Failed", "Could not check for updates. Check your internet connection.")
 
     # --- API Key Management ---
     def load_api_key(self):
@@ -411,7 +423,7 @@ class DecartApp(QMainWindow):
     async def connect(self):
         api_key = self.api_key_input.text().strip()
         if not api_key:
-            QMessageBox.warning(self, "Error", "Please enter an API Key.")
+            self.show_warning_message("Error", "Please enter an API Key.")
             return
 
         self.status_label.setText("Status: Connecting...")
@@ -431,7 +443,7 @@ class DecartApp(QMainWindow):
                 self.vcam = pyvirtualcam.Camera(width=target_width, height=target_height, fps=self.target_fps)
                 print(f"Virtual camera started: {self.vcam.device} ({target_width}x{target_height} @ {self.target_fps}fps)")
             except Exception as e:
-                QMessageBox.critical(self, "Driver Missing", 
+                self.show_error_message("Driver Missing", 
                     f"Could not start virtual camera. Please ensure OBS Virtual Camera or v4l2loopback is installed.\nError: {e}")
                 self.reset_ui()
                 return
@@ -440,10 +452,16 @@ class DecartApp(QMainWindow):
             self.camera_thread = CameraThread(target_width=target_width, target_height=target_height)
             self.camera_thread.start()
             
-            # Wait a bit for the camera to warm up
-            await asyncio.sleep(1)
-            if not self.camera_thread.running:
-                raise Exception("Could not open local camera. It might be in use by another app.")
+            # Wait a bit for the camera to warm up / initialize
+            warmed_up = False
+            for _ in range(50):  # Wait up to 5 seconds (50 * 0.1s)
+                await asyncio.sleep(0.1)
+                if self.camera_thread.running:
+                    warmed_up = True
+                    break
+
+            if not warmed_up:
+                raise Exception("Could not open local camera. It might be in use by another app or taking too long to initialize.")
 
             # 3. Create LiveKit video source bridge and start pushing frames
             self.camera_source = LiveKitCameraSource(self.camera_thread, fps=self.target_fps)
@@ -480,7 +498,7 @@ class DecartApp(QMainWindow):
             self.connect_btn.setEnabled(True)
 
         except Exception as e:
-            QMessageBox.critical(self, "Connection Error", f"Failed to connect: {str(e)}")
+            self.show_error_message("Connection Error", f"Failed to connect: {str(e)}")
             await self.disconnect()
 
     async def disconnect(self):
@@ -614,13 +632,13 @@ class DecartApp(QMainWindow):
             callable(getattr(self.realtime_client, "is_connected", None))
             and self.realtime_client.is_connected()
         ):
-            QMessageBox.warning(self, "Warning", "Not connected. Please click Connect first.")
+            self.show_warning_message("Warning", "Not connected. Please click Connect first.")
             return
         
         try:
             prompt_text = self.prompt_input.text()
             if not prompt_text.strip():
-                QMessageBox.warning(self, "Warning", "Please enter a prompt description.")
+                self.show_warning_message("Warning", "Please enter a prompt description.")
                 return
             
             # Use set() for atomic update of prompt + image
@@ -648,7 +666,7 @@ class DecartApp(QMainWindow):
             print(f"Prompt applied successfully.")
             
         except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed to apply prompt: {str(e)}")
+            self.show_error_message("Error", f"Failed to apply prompt: {str(e)}")
             print(f"Error applying prompt: {e}")
 
     def set_preset(self, name, prompt_text):
