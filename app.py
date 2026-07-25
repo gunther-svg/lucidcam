@@ -21,6 +21,7 @@ from decart.types import ModelState, Prompt
 from video_pipeline import CameraThread, LiveKitCameraSource, FrameEmitter
 from livekit.rtc import VideoStream
 import aiohttp
+from prompt_handler import generate_prompt
 
 VERSION = "1.0.0"
 # Placeholder URL for version checking
@@ -101,7 +102,6 @@ class DecartApp(QMainWindow):
 
         # State
         self.realtime_client = None
-        self.camera_thread = None
         self.camera_source = None  # LiveKitCameraSource bridge
         self.vcam = None
         self.frame_emitter = FrameEmitter()
@@ -110,6 +110,16 @@ class DecartApp(QMainWindow):
         self.latest_transformed_frame = None
         self.output_task = None
         self.target_fps = 24
+
+        # Start camera thread on launch
+        self.camera_thread = CameraThread(target_width=1280, target_height=720)
+        self.camera_thread.start()
+
+        # Start timer for local unstyled camera feed preview in PIP overlay
+        from PyQt6.QtCore import QTimer
+        self.local_timer = QTimer(self)
+        self.local_timer.timeout.connect(self.update_local_preview)
+        self.local_timer.start(33) # ~30 FPS
         
         # Image/reference support
         self.reference_image_path = None
@@ -166,13 +176,25 @@ class DecartApp(QMainWindow):
         self.video_canvas.setMinimumHeight(500)
         main_layout.addWidget(self.video_canvas, stretch=1)
 
+        # Mini-Player for local unstyled camera feed (PIP overlay)
+        self.local_canvas = QLabel(self.video_canvas)
+        self.local_canvas.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.local_canvas.setFixedSize(240, 135) # 16:9 ratio
+        self.local_canvas.setStyleSheet("""
+            QLabel {
+                background-color: #1A1A1A;
+                border: 2px solid #007AFF;
+                border-radius: 4px;
+            }
+        """)
+
         # Control Panel
         control_panel = QVBoxLayout()
         
         # Prompt Input with Image Upload
         prompt_layout = QHBoxLayout()
         self.prompt_input = QLineEdit()
-        self.prompt_input.setPlaceholderText("e.g. Substitute the character in the video with a cartoon bear with brown fur.")
+        self.prompt_input.setPlaceholderText("e.g. Replace the person in the video with a cartoon bear with brown fur.")
         
         self.upload_image_btn = QPushButton("📁 Upload Image")
         self.upload_image_btn.setObjectName("imageUploadBtn")
@@ -231,12 +253,12 @@ class DecartApp(QMainWindow):
         # Per Lucy 2.1 docs: use "Substitute the character in the video with <description>."
         # for character transforms, and "Change <attribute> to <value>." for attribute changes.
         self.presets = {
-            "Albert Stylestein": "Substitute the character in the video with an older man with wild white hair, a thick white mustache, deep wrinkles, and warm, intelligent eyes.",
-            "Capybara": "Substitute the character in the video with a large, calm capybara with coarse brown fur, a rounded snout, and small dark eyes.",
-            "Statue of Liberty": "Substitute the character in the video with the Statue of Liberty, a green-patinated copper figure wearing a spiked crown and holding a torch.",
-            "Anime": "Substitute the character in the video with an anime-style character with large expressive eyes, smooth cel-shaded skin, and vibrant hair.",
-            "Cyberpunk": "Change the scene to a cyberpunk aesthetic with neon lighting, holographic overlays, and futuristic tech elements.",
-            "Oil Painting": "Change the visual style to a thick-brushstroke oil painting with rich, warm colors and visible canvas texture.",
+            "Albert Stylestein": "Replace the person in the video with an older man with wild white hair, a thick white mustache, deep wrinkles, and warm, intelligent eyes.",
+            "Capybara": "Replace the person in the video with a large, calm capybara with coarse brown fur, a rounded snout, and small dark eyes.",
+            "Statue of Liberty": "Replace the person in the video with the Statue of Liberty, a green-patinated copper figure wearing a spiked crown and holding a torch.",
+            "Anime": "Replace the person in the video with an anime-style character with large expressive eyes, smooth cel-shaded skin, and vibrant hair.",
+            "Cyberpunk": "Transform the scene to a cyberpunk aesthetic with neon lighting, holographic overlays, and futuristic tech elements.",
+            "Oil Painting": "Transform the visual style to a thick-brushstroke oil painting with rich, warm colors and visible canvas texture.",
             "Tuxedo": "Change the person's clothing to a sharp black tuxedo with a white dress shirt and black bow tie.",
             "Wedding Dress": "Change the person's clothing to a flowing white wedding dress with lace detailing.",
         }
@@ -353,6 +375,11 @@ class DecartApp(QMainWindow):
         # Save settings on exit
         self.settings.setValue("last_prompt", self.prompt_input.text())
         self.settings.setValue("geometry", self.saveGeometry())
+        
+        # Stop camera thread on application close
+        if self.camera_thread:
+            self.camera_thread.stop()
+            
         super().closeEvent(event)
 
     # --- Update Logic ---
@@ -448,17 +475,21 @@ class DecartApp(QMainWindow):
                 self.reset_ui()
                 return
 
-            # 2. Start Camera Thread
-            self.camera_thread = CameraThread(target_width=target_width, target_height=target_height)
-            self.camera_thread.start()
+            # 2. Ensure Camera Thread is running and update resolution
+            if not self.camera_thread:
+                self.camera_thread = CameraThread(target_width=target_width, target_height=target_height)
+                self.camera_thread.start()
+            else:
+                self.camera_thread.target_width = target_width
+                self.camera_thread.target_height = target_height
             
             # Wait a bit for the camera to warm up / initialize
             warmed_up = False
             for _ in range(50):  # Wait up to 5 seconds (50 * 0.1s)
-                await asyncio.sleep(0.1)
                 if self.camera_thread.running:
                     warmed_up = True
                     break
+                await asyncio.sleep(0.1)
 
             if not warmed_up:
                 raise Exception("Could not open local camera. It might be in use by another app or taking too long to initialize.")
@@ -470,15 +501,22 @@ class DecartApp(QMainWindow):
 
             # 4. Connect to Decart using the LiveKit track
             # Build initial state: prompt goes in Prompt(), image goes in ModelState()
-            prompt_text = self.prompt_input.text() or "Substitute the character in the video with an older man with wild white hair, a thick white mustache, deep wrinkles, and warm, intelligent eyes."
+            raw_prompt = self.prompt_input.text()
+            image_bytes = self._get_reference_image_bytes()
+            has_image = image_bytes is not None
+            
+            if not raw_prompt and not has_image:
+                raw_prompt = "Replace the person in the video with an older man with wild white hair, a thick white mustache, deep wrinkles, and warm, intelligent eyes."
+                
+            prompt_text = generate_prompt(raw_prompt, has_reference_image=has_image)
+            
             initial_state = ModelState(
                 prompt=Prompt(text=prompt_text, enhance=True),
             )
             # Add reference image as raw bytes if available
-            image_bytes = self._get_reference_image_bytes()
             if image_bytes:
                 initial_state.image = image_bytes
-                print(f"Connecting with prompt + reference image")
+                print(f"Connecting with prompt + reference image: {prompt_text}")
             else:
                 print(f"Connecting with prompt only: {prompt_text}")
 
@@ -522,9 +560,8 @@ class DecartApp(QMainWindow):
                 print(f"Error stopping camera source: {e}")
             self.camera_source = None
         
-        if self.camera_thread:
-            self.camera_thread.stop()
-            self.camera_thread = None
+        # Keep camera thread running for local mini-player preview
+        pass
         
         if self.vcam:
             self.vcam.close()
@@ -636,10 +673,15 @@ class DecartApp(QMainWindow):
             return
         
         try:
-            prompt_text = self.prompt_input.text()
-            if not prompt_text.strip():
+            raw_prompt = self.prompt_input.text()
+            image_bytes = self._get_reference_image_bytes()
+            has_image = image_bytes is not None
+            
+            if not raw_prompt.strip() and not has_image:
                 self.show_warning_message("Warning", "Please enter a prompt description.")
                 return
+            
+            prompt_text = generate_prompt(raw_prompt, has_reference_image=has_image)
             
             # Use set() for atomic update of prompt + image
             set_input_kwargs = {
@@ -648,10 +690,9 @@ class DecartApp(QMainWindow):
             }
             
             # Add reference image if available
-            image_bytes = self._get_reference_image_bytes()
             if image_bytes:
                 set_input_kwargs["image"] = image_bytes
-                print(f"Applying prompt with reference image")
+                print(f"Applying prompt with reference image: {prompt_text}")
             else:
                 print(f"Applying prompt: {prompt_text}")
             
@@ -673,6 +714,38 @@ class DecartApp(QMainWindow):
         self.prompt_input.setText(prompt_text)
         # Trigger apply
         self.apply_prompt()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if hasattr(self, 'local_canvas') and self.local_canvas:
+            # Position local canvas in bottom-right corner of the video_canvas
+            # Leave a 10px margin
+            self.local_canvas.move(
+                self.video_canvas.width() - self.local_canvas.width() - 10,
+                self.video_canvas.height() - self.local_canvas.height() - 10
+            )
+
+    def update_local_preview(self):
+        if self.camera_thread and self.camera_thread.running and self.camera_thread.latest_frame is not None:
+            try:
+                frame = self.camera_thread.latest_frame
+                # Convert BGR (OpenCV) to RGB for QImage
+                import cv2
+                rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                height, width, _ = rgb_frame.shape
+                bytes_per_line = 3 * width
+                q_img = QImage(rgb_frame.data, width, height, bytes_per_line, QImage.Format.Format_RGB888)
+                
+                # Scale to fit the local canvas
+                pixmap = QPixmap.fromImage(q_img)
+                scaled_pixmap = pixmap.scaled(
+                    self.local_canvas.size(),
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation
+                )
+                self.local_canvas.setPixmap(scaled_pixmap)
+            except Exception as e:
+                print(f"Error updating local preview: {e}")
 
 if __name__ == "__main__":
     # High DPI scaling support
