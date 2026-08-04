@@ -26,7 +26,7 @@ from livekit.rtc import VideoStream
 import aiohttp
 from prompt_handler import generate_prompt
 
-VERSION = "1.0.0"
+VERSION = "1.0.1"
 UPDATE_URL = "https://raw.githubusercontent.com/gunther-svg/lucidcam/main/version.txt"
 
 # Supported image formats
