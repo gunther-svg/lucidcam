@@ -1,6 +1,9 @@
 import sys
 import asyncio
-import keyring
+try:
+    import keyring
+except Exception:
+    keyring = None
 import pyvirtualcam
 import numpy as np
 import base64
@@ -24,8 +27,7 @@ import aiohttp
 from prompt_handler import generate_prompt
 
 VERSION = "1.0.0"
-# Placeholder URL for version checking
-UPDATE_URL = "https://raw.githubusercontent.com/YOUR_USERNAME/LucidCam/main/version.txt"
+UPDATE_URL = "https://raw.githubusercontent.com/gunther-svg/lucidcam/main/version.txt"
 
 # Supported image formats
 SUPPORTED_IMAGE_FORMATS = (".jpg", ".jpeg", ".png", ".bmp", ".webp")
@@ -194,7 +196,7 @@ class DecartApp(QMainWindow):
         # Prompt Input with Image Upload
         prompt_layout = QHBoxLayout()
         self.prompt_input = QLineEdit()
-        self.prompt_input.setPlaceholderText("e.g. Replace the person in the video with a cartoon bear with brown fur.")
+        self.prompt_input.setPlaceholderText("e.g. Replace the character in the video with a cartoon bear with brown fur.")
         
         self.upload_image_btn = QPushButton("📁 Upload Image")
         self.upload_image_btn.setObjectName("imageUploadBtn")
@@ -249,18 +251,12 @@ class DecartApp(QMainWindow):
         presets_scroll.setFrameShape(QFrame.Shape.NoFrame)
         presets_content = QWidget()
         presets_layout = QHBoxLayout(presets_content)
-        # Presets with proper Decart prompt templates
-        # Per Lucy 2.1 docs: use "Substitute the character in the video with <description>."
-        # for character transforms, and "Change <attribute> to <value>." for attribute changes.
+        # Presets with proper Decart Lucy 2.5 prompt templates
         self.presets = {
-            "Albert Stylestein": "Replace the person in the video with an older man with wild white hair, a thick white mustache, deep wrinkles, and warm, intelligent eyes.",
-            "Capybara": "Replace the person in the video with a large, calm capybara with coarse brown fur, a rounded snout, and small dark eyes.",
-            "Statue of Liberty": "Replace the person in the video with the Statue of Liberty, a green-patinated copper figure wearing a spiked crown and holding a torch.",
-            "Anime": "Replace the person in the video with an anime-style character with large expressive eyes, smooth cel-shaded skin, and vibrant hair.",
-            "Cyberpunk": "Transform the scene to a cyberpunk aesthetic with neon lighting, holographic overlays, and futuristic tech elements.",
-            "Oil Painting": "Transform the visual style to a thick-brushstroke oil painting with rich, warm colors and visible canvas texture.",
+            "Reference Replacer": "Replace the subject in the input feed with the character in the attached image.",
+            "Albert Einstein": "Replace the character in the video with an older man with wild white hair, a thick white mustache, deep wrinkles, and warm, intelligent eyes.",
             "Tuxedo": "Change the person's clothing to a sharp black tuxedo with a white dress shirt and black bow tie.",
-            "Wedding Dress": "Change the person's clothing to a flowing white wedding dress with lace detailing.",
+            "Hot Blonde Girl": "Replace the character in the video with a glamorous young woman with long wavy blonde hair, striking blue eyes, and a stylish outfit.",
         }
         for name, prompt_text in self.presets.items():
             btn = QPushButton(name)
@@ -404,15 +400,32 @@ class DecartApp(QMainWindow):
 
     # --- API Key Management ---
     def load_api_key(self):
-        key = keyring.get_password("DecartApp", "API_KEY")
+        key = ""
+        if keyring:
+            try:
+                key = keyring.get_password("DecartApp", "API_KEY") or ""
+            except Exception:
+                pass
+        if not key:
+            key = self.settings.value("api_key", "")
         if key:
             self.api_key_input.setText(key)
 
     def save_api_key(self):
         key = self.api_key_input.text().strip()
         if key:
-            keyring.set_password("DecartApp", "API_KEY", key)
-            QMessageBox.information(self, "Success", "API Key saved securely.")
+            saved_securely = False
+            if keyring:
+                try:
+                    keyring.set_password("DecartApp", "API_KEY", key)
+                    saved_securely = True
+                except Exception:
+                    pass
+            self.settings.setValue("api_key", key)
+            if saved_securely:
+                QMessageBox.information(self, "Success", "API Key saved securely.")
+            else:
+                QMessageBox.information(self, "Success", "API Key saved.")
 
     # --- Connection Logic ---
     @asyncSlot()
@@ -506,7 +519,7 @@ class DecartApp(QMainWindow):
             has_image = image_bytes is not None
             
             if not raw_prompt and not has_image:
-                raw_prompt = "Replace the person in the video with an older man with wild white hair, a thick white mustache, deep wrinkles, and warm, intelligent eyes."
+                raw_prompt = "Replace the character in the video with an older man with wild white hair, a thick white mustache, deep wrinkles, and warm, intelligent eyes."
                 
             prompt_text = generate_prompt(raw_prompt, has_reference_image=has_image)
             

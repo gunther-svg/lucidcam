@@ -1,0 +1,4 @@
+{
+  "Interpreter": "Global|VisualStudio|python 3.12 env made for lucidcam",
+  "TestFramework": "Pytest"
+}

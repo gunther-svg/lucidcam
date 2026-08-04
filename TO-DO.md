@@ -4,32 +4,32 @@ This document outlines the remaining steps to transition **LucidCam** from a Pyt
 
 ---
 
-## 🛠 Phase 1: Verification (Tomorrow's Goal)
+## 🛠 Phase 1: Verification
 Before building the installer, ensure the core logic is perfect on a native Windows environment.
-- [ ] **Hardware Test:** Run `run.bat` on Windows and verify physical webcam access.
-- [ ] **Driver Test:** Verify that `pyvirtualcam` successfully connects to the OBS Virtual Camera.
-- [ ] **AI Latency Test:** Confirm the restyling feels "real-time" on your specific hardware.
-- [ ] **Persistence Test:** Verify that window size and prompts are remembered after closing the app.
+- [x] **Hardware Test:** Run `run.bat` on Windows and verify physical webcam access.
+- [x] **Driver Test:** Verify that `pyvirtualcam` successfully connects to the OBS Virtual Camera.
+- [x] **AI Latency Test:** Confirm the restyling feels "real-time" on your specific hardware.
+- [x] **Persistence Test:** Verify that window size and prompts are remembered after closing the app.
 
 ## 📦 Phase 2: Professional Bundling
-Turning 800MB of Python code into a single, optimized executable.
-- [ ] **PyInstaller Integration:** Create a `build.py` script using `PyInstaller`.
-- [ ] **Hidden Imports:** Explicitly link "hidden" binaries for `PyQt6`, `livekit`, and `av`.
-- [ ] **Icon Support:** Create/add a `lucidcam.ico` for the taskbar and file icon.
-- [ ] **Splash Screen:** (Optional) Add a loading splash image to mask the initial 5-second environment startup.
+Turning Python code into a single, optimized executable.
+- [x] **PyInstaller Integration:** Created `build.py` script using `PyInstaller`.
+- [x] **Hidden Imports:** Explicitly linked hidden binaries for `PyQt6`, `livekit`, `av`, `decart`, `pyvirtualcam`, and `keyring`.
+- [x] **Icon Support:** Created `lucidcam.ico` for taskbar and executable icon.
+- [x] **Lucy 2.5 Integration:** Complete prompt handler alignment with Decart Lucy 2.5 prompting guide & enhancer compatibility.
 
 ## 🌐 Phase 3: Infrastructure
 Setting up the backend for updates and sharing.
-- [ ] **GitHub Repository:** Create the public/private repo for LucidCam.
-- [ ] **Update Server:** 
-    - Upload `version.txt` to the main branch.
-    - Update `UPDATE_URL` in `app.py` to point to your actual GitHub username.
-- [ ] **Documentation:** Finalize the `README.md` with your specific GitHub links and installation instructions.
+- [x] **GitHub Repository:** Configured repo `gunther-svg/lucidcam`.
+- [x] **Update Server:** 
+    - Created `version.txt` (v1.0.0).
+    - Updated `UPDATE_URL` in `app.py` to point to `https://raw.githubusercontent.com/gunther-svg/lucidcam/main/version.txt`.
+- [x] **Documentation:** Finalized `README.md` with instructions and setup guide.
 
 ## 🚀 Phase 4: Distribution & UX
 Making it easy for others to use.
-- [ ] **Installer Generator:** Use a tool like **Inno Setup** or **NSIS** to create a proper "Setup.exe" that checks for Python and OBS automatically.
-- [ ] **Security Bypass:** Prepare a "How to Run" note for users to explain the Windows "Unknown Publisher" warning (or look into self-signing).
-- [ ] **Presets Library:** Finalize the default styles in `app.py` based on your AI testing.
+- [x] **Installer Generator:** Created `installer.iss` script for Inno Setup compiler to generate `LucidCam_Setup_v1.0.0.exe`.
+- [x] **Security Bypass & Release Guide:** Prepared setup and release instructions.
+- [x] **Presets Library:** Finalized Lucy 2.5 default preset prompts in `app.py`.
 
 ---
