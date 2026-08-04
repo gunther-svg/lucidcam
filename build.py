@@ -84,6 +84,7 @@ def main():
         "prompt_handler",
         "video_pipeline",
         "diagnostics",
+        "setup_wizard",
     ]
 
     # Data files to bundle
