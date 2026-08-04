@@ -379,7 +379,7 @@ class SetupWizard(QMainWindow):
             header_logo.setText("🎭")
             header_logo.setStyleSheet("font-size: 32px;")
 
-        header_title = QLabel("LucidCam v1.0.0 Setup")
+        header_title = QLabel("LucidCam v1.0.1 Setup")
         header_title.setStyleSheet("font-size: 18px; font-weight: 700; color: #ffffff;")
 
         h_layout.addWidget(header_logo)

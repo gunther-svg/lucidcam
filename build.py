@@ -6,13 +6,16 @@ import zipfile
 from pathlib import Path
 
 def main():
-    print("=" * 60)
-    print(" LucidCam Automated Packaging & Release Build Script")
-    print(" Publisher: greatware | App: LucidCam v1.0.0")
-    print("=" * 60)
-
     project_dir = Path(__file__).parent.resolve()
     os.chdir(project_dir)
+
+    version_file = project_dir / "version.txt"
+    version_str = version_file.read_text().strip() if version_file.exists() else "1.0.1"
+
+    print("=" * 60)
+    print(" LucidCam Automated Packaging & Release Build Script")
+    print(f" Publisher: greatware | App: LucidCam v{version_str}")
+    print("=" * 60)
 
     # 1. Ensure Icon exists
     icon_path = project_dir / "lucidcam.ico"
@@ -166,7 +169,7 @@ def main():
 
     # Step 2: Create Portable ZIP Archive
     print("\n[+] Step 2: Creating Portable ZIP Archive...")
-    zip_path = dist_dir / "LucidCam-v1.0.0-portable.zip"
+    zip_path = dist_dir / f"LucidCam-v{version_str}-portable.zip"
     with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
         for root, dirs, files in os.walk(lucidcam_dist):
             for file in files:
@@ -187,7 +190,7 @@ def main():
 
     if iscc_cmd:
         print(f"  Found Inno Setup at: {iscc_cmd}")
-        print("  Building LucidCam_Setup_v1.0.0.exe...")
+        print(f"  Building LucidCam_Setup_v{version_str}.exe...")
         iscc_res = subprocess.run([iscc_cmd, "installer.iss"])
         if iscc_res.returncode == 0:
             print("  [OK] Inno Setup Installer compiled successfully in installer_output/")
@@ -200,8 +203,8 @@ def main():
     print(" ALL PACKAGING PREPARATION COMPLETE!")
     print(f" Executable: {lucidcam_dist / 'LucidCam.exe'}")
     print(f" Portable ZIP Archive: {zip_path}")
-    if (project_dir / "installer_output" / "LucidCam_Setup_v1.0.0.exe").exists():
-        print(f" Windows Installer: {project_dir / 'installer_output' / 'LucidCam_Setup_v1.0.0.exe'}")
+    if (project_dir / "installer_output" / f"LucidCam_Setup_v{version_str}.exe").exists():
+        print(f" Windows Installer: {project_dir / 'installer_output' / f'LucidCam_Setup_v{version_str}.exe'}")
     print("=" * 60)
 
 if __name__ == "__main__":

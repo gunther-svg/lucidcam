@@ -2,7 +2,7 @@
 ; Designed for non-technical users on machines without Python installed.
 
 #define MyAppName "LucidCam"
-#define MyAppVersion "1.0.0"
+#define MyAppVersion "1.0.1"
 #define MyAppPublisher "greatware"
 #define MyAppURL "https://github.com/gunther-svg/lucidcam"
 #define MyAppExeName "LucidCam.exe"
@@ -18,7 +18,7 @@ AppUpdatesURL={#MyAppURL}
 DefaultDirName={autopf}\{#MyAppName}
 DisableProgramGroupPage=yes
 OutputDir=installer_output
-OutputBaseFilename=LucidCam_Setup_v1.0.0
+OutputBaseFilename=LucidCam_Setup_v1.0.1
 SetupIconFile=lucidcam.ico
 Compression=lzma2/ultra64
 SolidCompression=yes

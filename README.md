@@ -1,19 +1,20 @@
 # 🎭 LucidCam
 
-[![Release](https://img.shields.io/badge/release-v1.0.0-blue.svg)](https://github.com/gunther-svg/lucidcam/releases/tag/v1.0.0)
+[![Release](https://img.shields.io/badge/release-v1.0.1-blue.svg)](https://github.com/gunther-svg/lucidcam/releases/tag/v1.0.1)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey)](#-prerequisites--drivers)
 
 Transform your live webcam feed into a work of art using **Decart AI's Lucy 2.5** real-time video model. **LucidCam** provides a real-time, AI-powered video restyler and character replacer that you can pipe directly into Zoom, OBS, or Teams via a Virtual Camera.
 
-Published by **greatware** | **Version 1.0.0**
+Published by **greatware** | **Version 1.0.1**
 
 ---
 
 ## ✨ Key Features
 
 * ⚡ **Real-Time AI Inference:** Ultra-low latency video restyling using WebRTC powered by Decart Lucy 2.5.
+* 🧙 **GTK/GNOME Adwaita Setup Wizard:** Interactive 5-screen setup and onboarding wizard with dependency checking and status badges.
 * 🧠 **Lucy 2.5 Prompting Engine:** Built-in prompt optimizer that structures requests for character replacement, attribute modifications, scene restyling, and object additions alongside Decart's prompt enhancer (`enhance=True`).
 * 🖼️ **Character Replacer & Reference Images:** Attach reference images and match specific identification features (hair style/color, outfit, facial features, accessories).
 * 🎥 **Virtual Camera Integration:** Broadcast your restyled video feed directly to OBS Virtual Camera, Zoom, Microsoft Teams, Discord, and Google Meet (`pyvirtualcam`).
@@ -24,17 +25,17 @@ Published by **greatware** | **Version 1.0.0**
 
 ---
 
-## 📥 Downloads & Installation (v1.0.0)
+## 📥 Downloads & Installation (v1.0.1)
 
 Choose the setup method that works best for you:
 
 ### Option 1: Standalone Windows Setup Installer (Recommended)
-1. Download **`LucidCam_Setup_v1.0.0.exe`** from the [v1.0.0 GitHub Release](https://github.com/gunther-svg/lucidcam/releases/tag/v1.0.0).
+1. Download **`LucidCam_Setup_v1.0.1.exe`** from the [v1.0.1 GitHub Release](https://github.com/gunther-svg/lucidcam/releases/tag/v1.0.1).
 2. Run the installer and follow the setup wizard.
 3. Launch **LucidCam** from your Start Menu or Desktop shortcut.
 
 ### Option 2: Portable Zip Package
-1. Download **`LucidCam-v1.0.0-portable.zip`** from [Releases](https://github.com/gunther-svg/lucidcam/releases/tag/v1.0.0).
+1. Download **`LucidCam-v1.0.1-portable.zip`** from [Releases](https://github.com/gunther-svg/lucidcam/releases/tag/v1.0.1).
 2. Extract the archive to any directory.
 3. Double-click **`LucidCam.exe`** inside the extracted folder.
 
