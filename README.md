@@ -1,36 +1,85 @@
 # 🎭 LucidCam
 
-Transform your live webcam feed into a work of art using **Decart AI's Lucy 2.5** realtime video model. **LucidCam** provides a real-time, AI-powered video restyler and character replacer that you can pipe directly into Zoom, OBS, or Teams via a Virtual Camera.
+[![Release](https://img.shields.io/badge/release-v1.0.0-blue.svg)](https://github.com/gunther-svg/lucidcam/releases/tag/v1.0.0)
+[![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
+[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey)](#-prerequisites--drivers)
 
-Published by **greatware** | Version 1.0.0
+Transform your live webcam feed into a work of art using **Decart AI's Lucy 2.5** real-time video model. **LucidCam** provides a real-time, AI-powered video restyler and character replacer that you can pipe directly into Zoom, OBS, or Teams via a Virtual Camera.
 
----
-
-## ✨ Features
-
-*   **Real-time AI Inference:** Ultra-low latency video restyling using WebRTC powered by Decart Lucy 2.5.
-*   **Lucy 2.5 Prompting Guide Engine:** Automatic prompt structuring for character replacement, attribute changes, scene restyling, and object additions alongside Decart's prompt enhancer (`enhance=True`).
-*   **Character Replacer & Reference Images:** Attach reference images and match specific identification features (hair, outfit, face, glasses, accessories).
-*   **One-Click Installation:** Automatic virtual environment setup and dependency management.
-*   **Virtual Camera Output:** Seamless integration with standard video conferencing software (OBS Virtual Camera / pyvirtualcam).
-*   **Modern Dark UI:** Intuitive, mobile-inspired design built with PyQt6.
-*   **Secure Credential Storage:** API keys are stored securely in your OS-native keychain.
-*   **Optimized Pipeline:** Uses a non-blocking frame strategy to maintain real-time performance.
+Published by **greatware** | **Version 1.0.0**
 
 ---
 
-## 🚀 Quick Start (One-Click)
+## ✨ Key Features
 
-### **Windows**
-1.  **Install Python:** Download from [python.org](https://www.python.org/) (ensure "Add to PATH" is checked).
-2.  **Install OBS:** Download [OBS Studio](https://obsproject.com/) (required for the Virtual Camera driver).
-3.  **Run:** Double-click **`run.bat`**.
+* ⚡ **Real-Time AI Inference:** Ultra-low latency video restyling using WebRTC powered by Decart Lucy 2.5.
+* 🧠 **Lucy 2.5 Prompting Engine:** Built-in prompt optimizer that structures requests for character replacement, attribute modifications, scene restyling, and object additions alongside Decart's prompt enhancer (`enhance=True`).
+* 🖼️ **Character Replacer & Reference Images:** Attach reference images and match specific identification features (hair style/color, outfit, facial features, accessories).
+* 🎥 **Virtual Camera Integration:** Broadcast your restyled video feed directly to OBS Virtual Camera, Zoom, Microsoft Teams, Discord, and Google Meet (`pyvirtualcam`).
+* 🎨 **Modern Dark UI:** Intuitive, responsive desktop application built with PyQt6.
+* 🔑 **Secure Credential Storage:** API keys are stored securely using your OS-native keyring/keychain.
+* 🚀 **Optimized Pipeline:** Non-blocking async frame processing (`qasync`) ensures smooth, real-time video playback without dropped frames.
+* 🔄 **Auto-Update Checker:** Notifies you automatically when new package releases are published.
 
 ---
 
-## 📦 Building Executable & Installer
+## 📥 Downloads & Installation (v1.0.0)
 
-To build the standalone executable and Windows installer package:
+Choose the setup method that works best for you:
+
+### Option 1: Standalone Windows Setup Installer (Recommended)
+1. Download **`LucidCam_Setup_v1.0.0.exe`** from the [v1.0.0 GitHub Release](https://github.com/gunther-svg/lucidcam/releases/tag/v1.0.0).
+2. Run the installer and follow the setup wizard.
+3. Launch **LucidCam** from your Start Menu or Desktop shortcut.
+
+### Option 2: Portable Zip Package
+1. Download **`LucidCam-v1.0.0-portable.zip`** from [Releases](https://github.com/gunther-svg/lucidcam/releases/tag/v1.0.0).
+2. Extract the archive to any directory.
+3. Double-click **`LucidCam.exe`** inside the extracted folder.
+
+### Option 3: Run from Source (Developers)
+```bash
+# Clone the repository
+git clone https://github.com/gunther-svg/lucidcam.git
+cd lucidcam
+
+# Run the automated setup and launcher
+run.bat    # Windows
+# OR
+./run.sh   # Linux / macOS
+```
+
+---
+
+## 🛠️ Prerequisites & Drivers
+
+LucidCam requires a Virtual Camera driver to route the AI feed to video conferencing software:
+
+| OS | Driver Requirement | Installation Link / Command |
+| :--- | :--- | :--- |
+| **Windows** | OBS Virtual Camera | Included automatically in [OBS Studio](https://obsproject.com/) |
+| **Linux** | v4l2loopback | `sudo apt install v4l2loopback-dkms` |
+| **macOS** | OBS Virtual Camera | Included automatically in [OBS Studio](https://obsproject.com/) |
+
+---
+
+## 💡 How to Use
+
+1. **Launch LucidCam** (via Installed Shortcut, `LucidCam.exe`, or `run.bat`).
+2. **API Key Setup:** Enter your Decart API key in the API Key field and click **Save Key**. It will be securely stored in your OS keyring.
+3. **Connect Feed:** Click **Connect**. LucidCam initializes your webcam and establishes a real-time WebRTC session with Decart AI.
+4. **Apply Restyling & Prompts:**
+   * **Custom Prompt:** Type any descriptive prompt formatted for Lucy 2.5 (e.g., *"Replace the character in the video with an astronaut in a detailed sci-fi suit."*).
+   * **Reference Image:** Upload an image to lock character identification features (*"short curly hair, green leather jacket"*).
+   * **Presets:** Click any preset button (*Reference Replacer*, *Albert Einstein*, *Tuxedo*, *Cyberpunk*).
+5. **Stream to Apps:** Open Zoom, Teams, Discord, or OBS Studio -> Go to **Video Settings** -> Select **"OBS Virtual Camera"** or **"pyvirtualcam"** as your camera source.
+
+---
+
+## 🏗️ Building Executable & Package Bundles
+
+To build the standalone executable, portable ZIP, and Inno Setup installer from source:
 
 ```bash
 python build.py
@@ -39,44 +88,34 @@ python build.py
 `build.py` automatically generates:
 1. **PyInstaller Application Folder:** `dist/LucidCam/LucidCam.exe`
 2. **Portable ZIP Archive:** `dist/LucidCam-v1.0.0-portable.zip`
-3. **Windows Setup Installer:** `installer_output/LucidCam_Setup_v1.0.0.exe` (via Inno Setup script `installer.iss`)
+3. **Windows Setup Installer:** `installer_output/LucidCam_Setup_v1.0.0.exe` *(requires Inno Setup)*
 
 ---
 
-## 🛠️ Prerequisites & Drivers
+## 🔍 Diagnostic & Troubleshooting Tool
 
-| OS | Driver Requirement | Source |
-| :--- | :--- | :--- |
-| **Windows** | OBS Virtual Camera | Included in [OBS Studio](https://obsproject.com/) |
-| **Linux** | v4l2loopback | `sudo apt install v4l2loopback-dkms` |
-| **macOS** | OBS Virtual Camera | Included in [OBS Studio](https://obsproject.com/) |
+If you encounter issues with camera permissions, WebRTC streaming, or virtual camera drivers:
 
----
-
-## 💡 How to Use
-
-1.  **Launch:** Run `run.bat` or run `LucidCam.exe`.
-2.  **API Key:** Enter your Decart API key at the top. Click **Save Key** to store it securely.
-3.  **Connect:** Click **Connect**. Your physical webcam will activate and connect to Decart AI.
-4.  **Style & Prompts:**
-    *   **Custom Prompt:** Type any prompt formatted with Lucy 2.5 templates (e.g. *"Replace the character in the video with an astronaut."*).
-    *   **Reference Image:** Upload an image to match identification features (*"short curly hair, green jacket"*).
-    *   **Presets:** Choose from top built-in presets (*Reference Replacer*, *Albert Einstein*, *Tuxedo*, *Hot Blonde Girl*).
-5.  **Go Live:** Open Zoom/Teams/OBS, go to Settings -> Video, and select **"OBS Virtual Camera"** or **"pyvirtualcam"**.
-
----
-
-## 🔍 Diagnostic Tool
-
-If you encounter issues, run the diagnostic tool:
 ```bash
 python diagnostics.py
 ```
+
+This diagnostic utility verifies:
+* Physical camera availability
+* OBS Virtual Camera driver status
+* Network connectivity to Decart AI (`api.decart.ai`)
+* OS Keyring credentials storage
 
 ---
 
 ## 🤓 Technical Architecture
 
-*   **Async Core:** Managed via `qasync`, integrating PyQt6 UI and WebRTC `asyncio` event loops seamlessly.
-*   **Decart Lucy 2.5 Handler:** Formats prompt inputs according to Decart's official Lucy 2.5 prompt guide templates, removing low-value buzzwords and optimizing prompt enhancer output.
-*   **Video Pipeline:** Custom `aiortc.MediaStreamTrack` streaming BGR frames in real-time with automatic oldest-frame dropping.
+* **Event Loop Integration:** Built with `PyQt6` and `qasync` to run PyQt's event loop and `asyncio` WebRTC tasks on a single thread safely.
+* **Prompt Handler:** `prompt_handler.py` strictly follows Decart's official Lucy 2.5 prompting guidelines to optimize live model output.
+* **Low-Latency Video Pipeline:** `video_pipeline.py` implements custom frame capture with automatic drop strategies for zero frame buffering.
+
+---
+
+## 📄 License
+
+Distributed under the **MIT License**. See `LICENSE` for more information.
