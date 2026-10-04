@@ -1,12 +1,15 @@
-development is stalled, please donate: btc "bc1qllne6ymmu9mcw359qemvj8t0lrjlg6qcvaahmv"
 # 🎭 LucidCam
+
+> ⚠️ Project Status: Development Stalled
+> Active development is currently on hold. If you'd like to support the project and help reactivate development, donations are greatly appreciated:
+> Bitcoin (BTC): bc1qllne6ymmu9mcw359qemvj8t0lrjlg6qcvaahmv
 
 [![Release](https://img.shields.io/badge/release-v1.0.1-blue.svg)](https://github.com/gunther-svg/lucidcam/releases/tag/v1.0.1)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey)](#-prerequisites--drivers)
 
-Transform your live webcam feed into a work of art using **Decart AI's Lucy 2.5** real-time video model. **LucidCam** provides a real-time, AI-powered video restyler and character replacer that you can pipe directly into Zoom, OBS, or Teams via a Virtual Camera.
+Transform your live webcam feed into a work of art using **Decart AI's Lucy 2.5** real-time video model. LucidCam provides a real-time, AI-powered video restyler and character replacer that you can pipe directly into Zoom, OBS, or Teams via a Virtual Camera.
 
 Published by **greatware** | **Version 1.0.1**
 
@@ -16,12 +19,12 @@ Published by **greatware** | **Version 1.0.1**
 
 * ⚡ **Real-Time AI Inference:** Ultra-low latency video restyling using WebRTC powered by Decart Lucy 2.5.
 * 🧙 **GTK/GNOME Adwaita Setup Wizard:** Interactive 5-screen setup and onboarding wizard with dependency checking and status badges.
-* 🧠 **Lucy 2.5 Prompting Engine:** Built-in prompt optimizer that structures requests for character replacement, attribute modifications, scene restyling, and object additions alongside Decart's prompt enhancer (`enhance=True`).
+* 🧠 **Lucy 2.5 Prompting Engine:** Built-in prompt optimizer that structures requests for character replacement, attribute modifications, scene restyling, and object additions alongside Decart's prompt enhancer (enhance=True).
 * 🖼️ **Character Replacer & Reference Images:** Attach reference images and match specific identification features (hair style/color, outfit, facial features, accessories).
-* 🎥 **Virtual Camera Integration:** Broadcast your restyled video feed directly to OBS Virtual Camera, Zoom, Microsoft Teams, Discord, and Google Meet (`pyvirtualcam`).
+* 🎥 **Virtual Camera Integration:** Broadcast your restyled video feed directly to OBS Virtual Camera, Zoom, Microsoft Teams, Discord, and Google Meet (pyvirtualcam).
 * 🎨 **Modern Dark UI:** Intuitive, responsive desktop application built with PyQt6.
 * 🔑 **Secure Credential Storage:** API keys are stored securely using your OS-native keyring/keychain.
-* 🚀 **Optimized Pipeline:** Non-blocking async frame processing (`qasync`) ensures smooth, real-time video playback without dropped frames.
+* 🚀 **Optimized Pipeline:** Non-blocking async frame processing (qasync) ensures smooth, real-time video playback without dropped frames.
 * 🔄 **Auto-Update Checker:** Notifies you automatically when new package releases are published.
 
 ---
@@ -31,14 +34,14 @@ Published by **greatware** | **Version 1.0.1**
 Choose the setup method that works best for you:
 
 ### Option 1: Standalone Windows Setup Installer (Recommended)
-1. Download **`LucidCam_Setup_v1.0.1.exe`** from the [v1.0.1 GitHub Release](https://github.com/gunther-svg/lucidcam/releases/tag/v1.0.1).
-2. Run the installer and follow the setup wizard.
-3. Launch **LucidCam** from your Start Menu or Desktop shortcut.
+* Download **LucidCam_Setup_v1.0.1.exe** from the [v1.0.1 GitHub Release](https://github.com/gunther-svg/lucidcam/releases/tag/v1.0.1).
+* Run the installer and follow the setup wizard.
+* Launch **LucidCam** from your Start Menu or Desktop shortcut.
 
-### Option 2: Portable Zip Package
-1. Download **`LucidCam-v1.0.1-portable.zip`** from [Releases](https://github.com/gunther-svg/lucidcam/releases/tag/v1.0.1).
-2. Extract the archive to any directory.
-3. Double-click **`LucidCam.exe`** inside the extracted folder.
+### Option 2: Portable ZIP Package
+* Download **LucidCam-v1.0.1-portable.zip** from [Releases](https://github.com/gunther-svg/lucidcam/releases/tag/v1.0.1).
+* Extract the archive to any directory.
+* Double-click **LucidCam.exe** inside the extracted folder.
 
 ### Option 3: Run from Source (Developers)
 ```bash
@@ -75,7 +78,7 @@ LucidCam requires a Virtual Camera driver to route the AI feed to video conferen
    * **Custom Prompt:** Type any descriptive prompt formatted for Lucy 2.5 (e.g., *"Replace the character in the video with an astronaut in a detailed sci-fi suit."*).
    * **Reference Image:** Upload an image to lock character identification features (*"short curly hair, green leather jacket"*).
    * **Presets:** Click any preset button (*Reference Replacer*, *Albert Einstein*, *Tuxedo*, *Cyberpunk*).
-5. **Stream to Apps:** Open Zoom, Teams, Discord, or OBS Studio -> Go to **Video Settings** -> Select **"OBS Virtual Camera"** or **"pyvirtualcam"** as your camera source.
+5. **Stream to Apps:** Open Zoom, Teams, Discord, or OBS Studio → Go to **Video Settings** → Select **"OBS Virtual Camera"** or **"pyvirtualcam"** as your camera source.
 
 ---
 
@@ -88,9 +91,9 @@ python build.py
 ```
 
 `build.py` automatically generates:
-1. **PyInstaller Application Folder:** `dist/LucidCam/LucidCam.exe`
-2. **Portable ZIP Archive:** `dist/LucidCam-v1.0.0-portable.zip`
-3. **Windows Setup Installer:** `installer_output/LucidCam_Setup_v1.0.0.exe` *(requires Inno Setup)*
+* **PyInstaller Application Folder:** `dist/LucidCam/LucidCam.exe`
+* **Portable ZIP Archive:** `dist/LucidCam-v1.0.0-portable.zip`
+* **Windows Setup Installer:** `installer_output/LucidCam_Setup_v1.0.0.exe` *(requires Inno Setup)*
 
 ---
 
