@@ -1,3 +1,4 @@
+development is stalled, please donate: btc "bc1qllne6ymmu9mcw359qemvj8t0lrjlg6qcvaahmv"
 # 🎭 LucidCam
 
 [![Release](https://img.shields.io/badge/release-v1.0.1-blue.svg)](https://github.com/gunther-svg/lucidcam/releases/tag/v1.0.1)
